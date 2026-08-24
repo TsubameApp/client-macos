@@ -25,6 +25,29 @@ struct AnkiSettingsTests {
     }
 
     @Test
+    func migratesSettingsSavedBeforeModelFieldsWerePersisted() throws {
+        let legacyJSON = Data(
+            """
+            {
+              "enabled": true,
+              "endpoint": "http://127.0.0.1:8765",
+              "deckName": "Mining",
+              "modelName": "Lapis",
+              "tags": ["tsubame"],
+              "fieldTemplates": {
+                "Sentence": "{cloze-sentence}",
+                "Expression": "{expression}"
+              }
+            }
+            """.utf8
+        )
+
+        let settings = try JSONDecoder().decode(AnkiSettings.self, from: legacyJSON)
+
+        #expect(settings.modelFieldNames == ["Expression", "Sentence"])
+    }
+
+    @Test
     func loadsDecksModelsAndSuggestedFieldMappings() async throws {
         let suiteName = "AnkiSettingsTests.\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suiteName))
@@ -74,4 +97,8 @@ private struct StaticAnkiConnectService: AnkiConnectServing {
     func modelFieldNames(modelName: String) async throws -> [String] {
         ["Word", "Word Reading", "Word Meaning (Russian)", "Sentence"]
     }
+
+    func canAddNote(_ note: AnkiNote) async throws -> Bool { true }
+
+    func addNote(_ note: AnkiNote) async throws -> Int64 { 1 }
 }

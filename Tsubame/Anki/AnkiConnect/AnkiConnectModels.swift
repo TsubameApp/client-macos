@@ -5,6 +5,37 @@ protocol AnkiConnectServing: Sendable {
     func deckNames() async throws -> [String]
     func modelNames() async throws -> [String]
     func modelFieldNames(modelName: String) async throws -> [String]
+    func canAddNote(_ note: AnkiNote) async throws -> Bool
+    func addNote(_ note: AnkiNote) async throws -> Int64
+}
+
+struct AnkiNote: Codable, Sendable, Equatable {
+    let deckName: String
+    let modelName: String
+    let fields: [String: String]
+    let options: Options
+    let tags: [String]
+
+    init(
+        deckName: String,
+        modelName: String,
+        fields: [String: String],
+        tags: [String]
+    ) {
+        self.deckName = deckName
+        self.modelName = modelName
+        self.fields = fields
+        options = Options(
+            allowDuplicate: false,
+            duplicateScope: "collection"
+        )
+        self.tags = tags
+    }
+
+    struct Options: Codable, Sendable, Equatable {
+        let allowDuplicate: Bool
+        let duplicateScope: String
+    }
 }
 
 enum AnkiConnectError: LocalizedError, Sendable, Equatable {

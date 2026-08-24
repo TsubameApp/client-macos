@@ -57,6 +57,26 @@ struct AnkiConnectClient: AnkiConnectServing {
         )
     }
 
+    func canAddNote(_ note: AnkiNote) async throws -> Bool {
+        let results = try await invoke(
+            "canAddNotes",
+            params: NotesParams(notes: [note]),
+            result: [Bool].self
+        )
+        guard let result = results.first else {
+            throw AnkiConnectError.invalidResponse
+        }
+        return result
+    }
+
+    func addNote(_ note: AnkiNote) async throws -> Int64 {
+        try await invoke(
+            "addNote",
+            params: NoteParams(note: note),
+            result: Int64.self
+        )
+    }
+
     private func invoke<Result: Decodable>(
         _ action: String,
         result: Result.Type
@@ -120,4 +140,12 @@ private struct EmptyParams: Encodable {}
 
 private struct ModelFieldNamesParams: Encodable {
     let modelName: String
+}
+
+private struct NotesParams: Encodable {
+    let notes: [AnkiNote]
+}
+
+private struct NoteParams: Encodable {
+    let note: AnkiNote
 }

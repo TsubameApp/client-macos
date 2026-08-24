@@ -22,7 +22,9 @@ struct AnkiConnectTests {
                 "version": "5",
                 "deckNames": "[\"Mining\",\"Default\"]",
                 "modelNames": "[\"Lapis\"]",
-                "modelFieldNames": "[\"Expression\",\"Sentence\"]"
+                "modelFieldNames": "[\"Expression\",\"Sentence\"]",
+                "canAddNotes": "[true]",
+                "addNote": "98765"
             ]
         )
         let endpoint = try AnkiConnectEndpoint.validate(AnkiConnectEndpoint.defaultValue)
@@ -35,11 +37,30 @@ struct AnkiConnectTests {
             try await client.modelFieldNames(modelName: "Lapis")
                 == ["Expression", "Sentence"]
         )
+        let note = AnkiNote(
+            deckName: "Mining",
+            modelName: "Lapis",
+            fields: ["Expression": "食べる"],
+            tags: ["tsubame"]
+        )
+        #expect(try await client.canAddNote(note))
+        #expect(try await client.addNote(note) == 98765)
 
         let requests = await transport.requests
         #expect(requests.allSatisfy { $0.version == 5 })
-        #expect(requests.last?.action == "modelFieldNames")
-        #expect(requests.last?.modelName == "Lapis")
+        #expect(requests[3].action == "modelFieldNames")
+        #expect(requests[3].modelName == "Lapis")
+        #expect(requests[4].action == "canAddNotes")
+        #expect(requests[5].action == "addNote")
+        let addNoteJSON = try #require(
+            JSONSerialization.jsonObject(with: requests[5].body) as? [String: Any]
+        )
+        let params = try #require(addNoteJSON["params"] as? [String: Any])
+        let encodedNote = try #require(params["note"] as? [String: Any])
+        let options = try #require(encodedNote["options"] as? [String: Any])
+        #expect(encodedNote["deckName"] as? String == "Mining")
+        #expect(options["allowDuplicate"] as? Bool == false)
+        #expect(options["duplicateScope"] as? String == "collection")
     }
 
     @Test
@@ -62,6 +83,7 @@ private actor RecordingAnkiHTTPTransport: AnkiHTTPTransport {
         let action: String
         let version: Int
         let modelName: String?
+        let body: Data
     }
 
     private(set) var requests: [RecordedRequest] = []
@@ -85,7 +107,8 @@ private actor RecordingAnkiHTTPTransport: AnkiHTTPTransport {
             RecordedRequest(
                 action: action,
                 version: version,
-                modelName: params?["modelName"] as? String
+                modelName: params?["modelName"] as? String,
+                body: body
             )
         )
 

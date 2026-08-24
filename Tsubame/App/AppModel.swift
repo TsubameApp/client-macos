@@ -40,6 +40,7 @@ final class AppModel {
     @ObservationIgnored private let preferences: AppPreferences
     @ObservationIgnored private let libraryService: DictionaryLibraryService
     @ObservationIgnored let ankiSettings: AnkiSettingsModel
+    @ObservationIgnored private let ankiMining: AnkiMiningModel
     @ObservationIgnored private var dictionary: DictionaryEngine?
     @ObservationIgnored private var pipelineTask: Task<Void, Never>?
     @ObservationIgnored private var manualLookupTask: Task<Void, Never>?
@@ -54,7 +55,8 @@ final class AppModel {
         hotKeyMonitor: GlobalHotKeyMonitor = .init(),
         preferences: AppPreferences = .init(),
         libraryService: DictionaryLibraryService = .init(),
-        ankiSettings: AnkiSettingsModel = .init()
+        ankiSettings: AnkiSettingsModel = .init(),
+        ankiMiningService: any AnkiMiningServing = AnkiMiningService()
     ) {
         self.captureProvider = captureProvider
         self.permissionClient = permissionClient
@@ -63,10 +65,15 @@ final class AppModel {
         self.preferences = preferences
         self.libraryService = libraryService
         self.ankiSettings = ankiSettings
+        ankiMining = AnkiMiningModel(
+            settings: ankiSettings,
+            service: ankiMiningService
+        )
         developerModeEnabled = preferences.developerModeEnabled
         onboardingCompleted = preferences.onboardingCompleted
         permissionStatus = permissionClient.status()
         popupController.setDeveloperModeEnabled(developerModeEnabled)
+        popupController.setAnkiMiningModel(ankiMining)
     }
 
     var shouldShowMainWindowOnLaunch: Bool {
@@ -318,6 +325,9 @@ final class AppModel {
                 requestID: requestID,
                 selectedText: selectedText,
                 sourceApplication: outcome.snapshot.sourceApplication,
+                dictionaryTitle: installedDictionaries.first {
+                    $0.id == activeDictionaryID
+                }?.manifest.title ?? "Dictionary",
                 result: outcome.result,
                 timings: nil,
                 showsPerformanceMetrics: developerModeEnabled

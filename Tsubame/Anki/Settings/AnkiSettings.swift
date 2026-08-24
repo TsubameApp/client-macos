@@ -7,6 +7,7 @@ struct AnkiSettings: Codable, Sendable, Equatable {
     var modelName: String
     var tags: [String]
     var fieldTemplates: [String: String]
+    var modelFieldNames: [String]
 
     static let defaults = Self(
         enabled: false,
@@ -14,8 +15,41 @@ struct AnkiSettings: Codable, Sendable, Equatable {
         deckName: "",
         modelName: "",
         tags: ["tsubame"],
-        fieldTemplates: [:]
+        fieldTemplates: [:],
+        modelFieldNames: []
     )
+
+    init(
+        enabled: Bool,
+        endpoint: String,
+        deckName: String,
+        modelName: String,
+        tags: [String],
+        fieldTemplates: [String: String],
+        modelFieldNames: [String] = []
+    ) {
+        self.enabled = enabled
+        self.endpoint = endpoint
+        self.deckName = deckName
+        self.modelName = modelName
+        self.tags = tags
+        self.fieldTemplates = fieldTemplates
+        self.modelFieldNames = modelFieldNames
+    }
+
+    init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        enabled = try container.decode(Bool.self, forKey: .enabled)
+        endpoint = try container.decode(String.self, forKey: .endpoint)
+        deckName = try container.decode(String.self, forKey: .deckName)
+        modelName = try container.decode(String.self, forKey: .modelName)
+        tags = try container.decode([String].self, forKey: .tags)
+        fieldTemplates = try container.decode([String: String].self, forKey: .fieldTemplates)
+        modelFieldNames = try container.decodeIfPresent(
+            [String].self,
+            forKey: .modelFieldNames
+        ) ?? Array(fieldTemplates.keys).sorted()
+    }
 }
 
 @MainActor

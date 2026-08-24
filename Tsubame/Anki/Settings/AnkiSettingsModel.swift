@@ -66,6 +66,7 @@ final class AnkiSettingsModel {
         modelName = settings.modelName
         tagsText = settings.tags.joined(separator: " ")
         fieldTemplates = settings.fieldTemplates
+        modelFieldNames = settings.modelFieldNames
     }
 
     var connectionMessage: String {
@@ -210,7 +211,8 @@ final class AnkiSettingsModel {
                 deckName: deckName,
                 modelName: modelName,
                 tags: tags,
-                fieldTemplates: fieldTemplates
+                fieldTemplates: fieldTemplates,
+                modelFieldNames: modelFieldNames
             )
         )
     }

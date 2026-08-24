@@ -94,6 +94,7 @@ struct TsubameTests {
             requestID: 1,
             selectedText: "食",
             sourceApplication: .testValue,
+            dictionaryTitle: "Test Dictionary",
             result: LookupResult(
                 sourceRange: UTF8TextRange(start: 0, end: 3),
                 entries: []
