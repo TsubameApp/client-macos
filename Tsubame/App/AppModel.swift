@@ -39,6 +39,7 @@ final class AppModel {
     @ObservationIgnored private let hotKeyMonitor: GlobalHotKeyMonitor
     @ObservationIgnored private let preferences: AppPreferences
     @ObservationIgnored private let libraryService: DictionaryLibraryService
+    @ObservationIgnored let ankiSettings: AnkiSettingsModel
     @ObservationIgnored private var dictionary: DictionaryEngine?
     @ObservationIgnored private var pipelineTask: Task<Void, Never>?
     @ObservationIgnored private var manualLookupTask: Task<Void, Never>?
@@ -52,7 +53,8 @@ final class AppModel {
         popupController: DictionaryPopupController = .init(),
         hotKeyMonitor: GlobalHotKeyMonitor = .init(),
         preferences: AppPreferences = .init(),
-        libraryService: DictionaryLibraryService = .init()
+        libraryService: DictionaryLibraryService = .init(),
+        ankiSettings: AnkiSettingsModel = .init()
     ) {
         self.captureProvider = captureProvider
         self.permissionClient = permissionClient
@@ -60,6 +62,7 @@ final class AppModel {
         self.hotKeyMonitor = hotKeyMonitor
         self.preferences = preferences
         self.libraryService = libraryService
+        self.ankiSettings = ankiSettings
         developerModeEnabled = preferences.developerModeEnabled
         onboardingCompleted = preferences.onboardingCompleted
         permissionStatus = permissionClient.status()

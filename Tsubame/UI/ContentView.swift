@@ -18,6 +18,7 @@ struct ContentView: View {
 
                 dictionarySection
                 accessibilitySection
+                AnkiSettingsView(model: model.ankiSettings)
                 developerSection
 
                 HStack(alignment: .firstTextBaseline) {
