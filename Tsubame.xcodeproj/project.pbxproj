@@ -1,0 +1,572 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 110;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		284C7964303C8E4100483B57 /* TsubameCore in Frameworks */ = {isa = PBXBuildFile; productRef = 284C7963303C8E4100483B57 /* TsubameCore */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		285A09F3303C8C8300D0BAEA /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 285A09DB303C8C8000D0BAEA /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 285A09E2303C8C8000D0BAEA;
+			remoteInfo = Tsubame;
+		};
+		285A09FD303C8C8300D0BAEA /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 285A09DB303C8C8000D0BAEA /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 285A09E2303C8C8000D0BAEA;
+			remoteInfo = Tsubame;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXFileReference section */
+		285A09E3303C8C8000D0BAEA /* Tsubame.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Tsubame.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		285A09F2303C8C8300D0BAEA /* TsubameTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = TsubameTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		285A09FC303C8C8300D0BAEA /* TsubameUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = TsubameUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+/* End PBXFileReference section */
+
+/* Begin PBXFileSystemSynchronizedRootGroup section */
+		285A09E5303C8C8000D0BAEA /* Tsubame */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = Tsubame;
+			sourceTree = "<group>";
+		};
+		285A09F5303C8C8300D0BAEA /* TsubameTests */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = TsubameTests;
+			sourceTree = "<group>";
+		};
+		285A09FF303C8C8300D0BAEA /* TsubameUITests */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = TsubameUITests;
+			sourceTree = "<group>";
+		};
+/* End PBXFileSystemSynchronizedRootGroup section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		285A09E0303C8C8000D0BAEA /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			files = (
+				284C7964303C8E4100483B57 /* TsubameCore in Frameworks */,
+			);
+		};
+		285A09EF303C8C8300D0BAEA /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			files = (
+			);
+		};
+		285A09F9303C8C8300D0BAEA /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			files = (
+			);
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		285A09DA303C8C8000D0BAEA = {
+			isa = PBXGroup;
+			children = (
+				285A09E5303C8C8000D0BAEA /* Tsubame */,
+				285A09F5303C8C8300D0BAEA /* TsubameTests */,
+				285A09FF303C8C8300D0BAEA /* TsubameUITests */,
+				285A09E4303C8C8000D0BAEA /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		285A09E4303C8C8000D0BAEA /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				285A09E3303C8C8000D0BAEA /* Tsubame.app */,
+				285A09F2303C8C8300D0BAEA /* TsubameTests.xctest */,
+				285A09FC303C8C8300D0BAEA /* TsubameUITests.xctest */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		285A09E2303C8C8000D0BAEA /* Tsubame */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 285A0A04303C8C8300D0BAEA /* Build configuration list for PBXNativeTarget "Tsubame" */;
+			buildPhases = (
+				285A09DF303C8C8000D0BAEA /* Sources */,
+				285A09E0303C8C8000D0BAEA /* Frameworks */,
+				285A09E1303C8C8000D0BAEA /* Resources */,
+			);
+			buildRules = (
+			);
+			fileSystemSynchronizedGroups = (
+				285A09E5303C8C8000D0BAEA /* Tsubame */,
+			);
+			name = Tsubame;
+			packageProductDependencies = (
+				284C7963303C8E4100483B57 /* TsubameCore */,
+			);
+			productName = Tsubame;
+			productReference = 285A09E3303C8C8000D0BAEA /* Tsubame.app */;
+			productType = "com.apple.product-type.application";
+		};
+		285A09F1303C8C8300D0BAEA /* TsubameTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 285A0A07303C8C8300D0BAEA /* Build configuration list for PBXNativeTarget "TsubameTests" */;
+			buildPhases = (
+				285A09EE303C8C8300D0BAEA /* Sources */,
+				285A09EF303C8C8300D0BAEA /* Frameworks */,
+				285A09F0303C8C8300D0BAEA /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				285A09F4303C8C8300D0BAEA /* PBXTargetDependency */,
+			);
+			fileSystemSynchronizedGroups = (
+				285A09F5303C8C8300D0BAEA /* TsubameTests */,
+			);
+			name = TsubameTests;
+			productName = TsubameTests;
+			productReference = 285A09F2303C8C8300D0BAEA /* TsubameTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
+		285A09FB303C8C8300D0BAEA /* TsubameUITests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 285A0A0A303C8C8300D0BAEA /* Build configuration list for PBXNativeTarget "TsubameUITests" */;
+			buildPhases = (
+				285A09F8303C8C8300D0BAEA /* Sources */,
+				285A09F9303C8C8300D0BAEA /* Frameworks */,
+				285A09FA303C8C8300D0BAEA /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				285A09FE303C8C8300D0BAEA /* PBXTargetDependency */,
+			);
+			fileSystemSynchronizedGroups = (
+				285A09FF303C8C8300D0BAEA /* TsubameUITests */,
+			);
+			name = TsubameUITests;
+			productName = TsubameUITests;
+			productReference = 285A09FC303C8C8300D0BAEA /* TsubameUITests.xctest */;
+			productType = "com.apple.product-type.bundle.ui-testing";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		285A09DB303C8C8000D0BAEA /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = 1;
+				LastSwiftUpdateCheck = 2700;
+				LastUpgradeCheck = 2700;
+				TargetAttributes = {
+					285A09E2303C8C8000D0BAEA = {
+						CreatedOnToolsVersion = 27.0;
+					};
+					285A09F1303C8C8300D0BAEA = {
+						CreatedOnToolsVersion = 27.0;
+						TestTargetID = 285A09E2303C8C8000D0BAEA;
+					};
+					285A09FB303C8C8300D0BAEA = {
+						CreatedOnToolsVersion = 27.0;
+						TestTargetID = 285A09E2303C8C8000D0BAEA;
+					};
+				};
+			};
+			buildConfigurationList = 285A09DE303C8C8000D0BAEA /* Build configuration list for PBXProject "Tsubame" */;
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				en,
+				Base,
+			);
+			mainGroup = 285A09DA303C8C8000D0BAEA;
+			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				284C7962303C8E4100483B57 /* XCLocalSwiftPackageReference "../Core" */,
+			);
+			preferredProjectObjectVersion = 77;
+			productRefGroup = 285A09E4303C8C8000D0BAEA /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				285A09E2303C8C8000D0BAEA /* Tsubame */,
+				285A09F1303C8C8300D0BAEA /* TsubameTests */,
+				285A09FB303C8C8300D0BAEA /* TsubameUITests */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		285A09E1303C8C8000D0BAEA /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			files = (
+			);
+		};
+		285A09F0303C8C8300D0BAEA /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			files = (
+			);
+		};
+		285A09FA303C8C8300D0BAEA /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			files = (
+			);
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		285A09DF303C8C8000D0BAEA /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			files = (
+			);
+		};
+		285A09EE303C8C8300D0BAEA /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			files = (
+			);
+		};
+		285A09F8303C8C8300D0BAEA /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			files = (
+			);
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		285A09F4303C8C8300D0BAEA /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 285A09E2303C8C8000D0BAEA /* Tsubame */;
+			targetProxy = 285A09F3303C8C8300D0BAEA /* PBXContainerItemProxy */;
+		};
+		285A09FE303C8C8300D0BAEA /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 285A09E2303C8C8000D0BAEA /* Tsubame */;
+			targetProxy = 285A09FD303C8C8300D0BAEA /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
+/* Begin XCBuildConfiguration section */
+		285A0A02303C8C8300D0BAEA /* Debug configuration for PBXProject "Tsubame" */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				DEVELOPMENT_TEAM = T9JWH488LX;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu17;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"DEBUG=1",
+					"$(inherited)",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				SDKROOT = macosx;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)";
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+			};
+			name = Debug;
+		};
+		285A0A03303C8C8300D0BAEA /* Release configuration for PBXProject "Tsubame" */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				DEVELOPMENT_TEAM = T9JWH488LX;
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu17;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				SDKROOT = macosx;
+				SWIFT_COMPILATION_MODE = wholemodule;
+			};
+			name = Release;
+		};
+		285A0A05303C8C8300D0BAEA /* Debug configuration for PBXNativeTarget "Tsubame" */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_STYLE = Automatic;
+				COMBINE_HIDPI_IMAGES = YES;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = T9JWH488LX;
+				ENABLE_APP_SANDBOX = NO;
+				ENABLE_HARDENED_RUNTIME = YES;
+				ENABLE_PREVIEWS = YES;
+				ENABLE_USER_SELECTED_FILES = readonly;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.krnya.Tsubame;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				REGISTER_APP_GROUPS = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 6.0;
+			};
+			name = Debug;
+		};
+		285A0A06303C8C8300D0BAEA /* Release configuration for PBXNativeTarget "Tsubame" */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_STYLE = Automatic;
+				COMBINE_HIDPI_IMAGES = YES;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = T9JWH488LX;
+				ENABLE_APP_SANDBOX = NO;
+				ENABLE_HARDENED_RUNTIME = YES;
+				ENABLE_PREVIEWS = YES;
+				ENABLE_USER_SELECTED_FILES = readonly;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.krnya.Tsubame;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				REGISTER_APP_GROUPS = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 6.0;
+			};
+			name = Release;
+		};
+		285A0A08303C8C8300D0BAEA /* Debug configuration for PBXNativeTarget "TsubameTests" */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = T9JWH488LX;
+				GENERATE_INFOPLIST_FILE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.krnya.TsubameTests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				STRING_CATALOG_GENERATE_SYMBOLS = NO;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 6.0;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Tsubame.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/Tsubame";
+			};
+			name = Debug;
+		};
+		285A0A09303C8C8300D0BAEA /* Release configuration for PBXNativeTarget "TsubameTests" */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = T9JWH488LX;
+				GENERATE_INFOPLIST_FILE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.krnya.TsubameTests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				STRING_CATALOG_GENERATE_SYMBOLS = NO;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 6.0;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Tsubame.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/Tsubame";
+			};
+			name = Release;
+		};
+		285A0A0B303C8C8300D0BAEA /* Debug configuration for PBXNativeTarget "TsubameUITests" */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = T9JWH488LX;
+				GENERATE_INFOPLIST_FILE = YES;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.krnya.TsubameUITests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				STRING_CATALOG_GENERATE_SYMBOLS = NO;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 6.0;
+				TEST_TARGET_NAME = Tsubame;
+			};
+			name = Debug;
+		};
+		285A0A0C303C8C8300D0BAEA /* Release configuration for PBXNativeTarget "TsubameUITests" */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = T9JWH488LX;
+				GENERATE_INFOPLIST_FILE = YES;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.krnya.TsubameUITests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				STRING_CATALOG_GENERATE_SYMBOLS = NO;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 6.0;
+				TEST_TARGET_NAME = Tsubame;
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		285A09DE303C8C8000D0BAEA /* Build configuration list for PBXProject "Tsubame" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				285A0A02303C8C8300D0BAEA /* Debug configuration for PBXProject "Tsubame" */,
+				285A0A03303C8C8300D0BAEA /* Release configuration for PBXProject "Tsubame" */,
+			);
+			defaultConfigurationName = Release;
+		};
+		285A0A04303C8C8300D0BAEA /* Build configuration list for PBXNativeTarget "Tsubame" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				285A0A05303C8C8300D0BAEA /* Debug configuration for PBXNativeTarget "Tsubame" */,
+				285A0A06303C8C8300D0BAEA /* Release configuration for PBXNativeTarget "Tsubame" */,
+			);
+			defaultConfigurationName = Release;
+		};
+		285A0A07303C8C8300D0BAEA /* Build configuration list for PBXNativeTarget "TsubameTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				285A0A08303C8C8300D0BAEA /* Debug configuration for PBXNativeTarget "TsubameTests" */,
+				285A0A09303C8C8300D0BAEA /* Release configuration for PBXNativeTarget "TsubameTests" */,
+			);
+			defaultConfigurationName = Release;
+		};
+		285A0A0A303C8C8300D0BAEA /* Build configuration list for PBXNativeTarget "TsubameUITests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				285A0A0B303C8C8300D0BAEA /* Debug configuration for PBXNativeTarget "TsubameUITests" */,
+				285A0A0C303C8C8300D0BAEA /* Release configuration for PBXNativeTarget "TsubameUITests" */,
+			);
+			defaultConfigurationName = Release;
+		};
+/* End XCConfigurationList section */
+
+/* Begin XCLocalSwiftPackageReference section */
+		284C7962303C8E4100483B57 /* XCLocalSwiftPackageReference "../Core" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = ../Core;
+		};
+/* End XCLocalSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		284C7963303C8E4100483B57 /* TsubameCore */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = TsubameCore;
+		};
+/* End XCSwiftPackageProductDependency section */
+	};
+	rootObject = 285A09DB303C8C8000D0BAEA /* Project object */;
+	validationLevel = 1;
+}
