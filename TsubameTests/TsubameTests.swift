@@ -5,6 +5,116 @@ import TsubameCore
 
 struct TsubameTests {
     @Test
+    func macStorageLocationsUseClientOwnedRoots() {
+        let applicationSupport = URL(fileURLWithPath: "/test/Application Support")
+        let caches = URL(fileURLWithPath: "/test/Caches")
+        let temporary = URL(fileURLWithPath: "/test/Temporary")
+
+        let locations = MacStorageLocations.make(
+            applicationSupportDirectory: applicationSupport,
+            cachesDirectory: caches,
+            temporaryDirectory: temporary
+        )
+
+        #expect(locations.dataRoot.path == applicationSupport.appending(path: "Tsubame").path)
+        #expect(locations.cacheRoot.path == caches.appending(path: "Tsubame").path)
+        #expect(locations.temporaryRoot.path == temporary.path)
+    }
+
+    @Test
+    func appPreferencesPersistOnboardingDeveloperModeAndActiveDictionary() throws {
+        let suiteName = "TsubameTests.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let dictionaryID = UUID()
+        let preferences = AppPreferences(defaults: defaults)
+
+        preferences.onboardingCompleted = true
+        preferences.developerModeEnabled = true
+        preferences.activeDictionaryID = dictionaryID
+
+        let reloaded = AppPreferences(defaults: defaults)
+        #expect(reloaded.onboardingCompleted)
+        #expect(reloaded.developerModeEnabled)
+        #expect(reloaded.activeDictionaryID == dictionaryID)
+    }
+
+    @Test
+    func macDictionaryLibraryDiscoversInstalledBundle() throws {
+        let fileManager = FileManager.default
+        let temporaryRoot = fileManager.temporaryDirectory
+            .appending(path: "TsubameTests-\(UUID().uuidString)", directoryHint: .isDirectory)
+        defer { try? fileManager.removeItem(at: temporaryRoot) }
+        let locations = TsubameStorageLocations(
+            dataRoot: temporaryRoot.appending(path: "Data", directoryHint: .isDirectory),
+            cacheRoot: temporaryRoot.appending(path: "Cache", directoryHint: .isDirectory),
+            temporaryRoot: temporaryRoot.appending(path: "Work", directoryHint: .isDirectory)
+        )
+        let layout = DictionaryLibraryLayout(locations: locations)
+        let dictionaryID = UUID()
+        let bundleURL = layout.dictionaryBundleURL(for: dictionaryID)
+        try fileManager.createDirectory(at: bundleURL, withIntermediateDirectories: true)
+        let manifest = DictionaryBundleManifest(
+            dictionaryID: dictionaryID,
+            title: "Test Dictionary",
+            revision: "1",
+            dictionarySchemaVersion: 1,
+            termCount: 42,
+            termMetadataCount: 0,
+            kanjiCount: 0,
+            kanjiMetadataCount: 0,
+            tagCount: 0,
+            definitionCount: 42,
+            lookupKeyCount: 42,
+            resourceCount: 0,
+            totalResourceBytes: 0
+        )
+        try JSONEncoder().encode(manifest).write(
+            to: layout.dictionaryManifestURL(for: dictionaryID)
+        )
+        #expect(fileManager.createFile(
+            atPath: layout.dictionaryDatabaseURL(for: dictionaryID).path,
+            contents: Data()
+        ))
+
+        let installed = try MacDictionaryLibrary(layout: layout).load()
+
+        #expect(installed.count == 1)
+        #expect(installed.first?.id == dictionaryID)
+        #expect(installed.first?.manifest.title == "Test Dictionary")
+        #expect(
+            installed.first?.databaseURL.resolvingSymlinksInPath().path
+                == layout.dictionaryDatabaseURL(for: dictionaryID).resolvingSymlinksInPath().path
+        )
+    }
+
+    @Test
+    func popupPresentationKeepsDeveloperMetricsEnabledWhenTimingsArrive() {
+        let presentation = PopupPresentation(
+            requestID: 1,
+            selectedText: "食",
+            sourceApplication: .testValue,
+            result: LookupResult(
+                sourceRange: UTF8TextRange(start: 0, end: 3),
+                entries: []
+            ),
+            timings: nil,
+            showsPerformanceMetrics: true
+        )
+        let timings = PipelineTimings(
+            capture: .milliseconds(1),
+            lookup: .milliseconds(2),
+            present: .milliseconds(3),
+            total: .milliseconds(6)
+        )
+
+        let updated = presentation.with(timings: timings)
+
+        #expect(updated.timings == timings)
+        #expect(updated.showsPerformanceMetrics)
+    }
+
+    @Test
     func convertsUTF16SelectionToUTF8Offsets() throws {
         let text = "A食😀かな"
         let range = try CaptureTextRange.fromUTF16Range(

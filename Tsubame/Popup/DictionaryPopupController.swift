@@ -9,6 +9,7 @@ struct PopupPresentation: Sendable {
     let sourceApplication: SourceApplication
     let result: LookupResult
     let timings: PipelineTimings?
+    let showsPerformanceMetrics: Bool
 
     func with(timings: PipelineTimings) -> Self {
         Self(
@@ -16,7 +17,19 @@ struct PopupPresentation: Sendable {
             selectedText: selectedText,
             sourceApplication: sourceApplication,
             result: result,
-            timings: timings
+            timings: timings,
+            showsPerformanceMetrics: showsPerformanceMetrics
+        )
+    }
+
+    func with(showsPerformanceMetrics: Bool) -> Self {
+        Self(
+            requestID: requestID,
+            selectedText: selectedText,
+            sourceApplication: sourceApplication,
+            result: result,
+            timings: timings,
+            showsPerformanceMetrics: showsPerformanceMetrics
         )
     }
 }
@@ -91,6 +104,13 @@ final class DictionaryPopupController {
     func update(timings: PipelineTimings) {
         guard let presentation else { return }
         let updated = presentation.with(timings: timings)
+        self.presentation = updated
+        hostingController.rootView = DictionaryPopupView(presentation: updated)
+    }
+
+    func setDeveloperModeEnabled(_ enabled: Bool) {
+        guard let presentation else { return }
+        let updated = presentation.with(showsPerformanceMetrics: enabled)
         self.presentation = updated
         hostingController.rootView = DictionaryPopupView(presentation: updated)
     }
@@ -330,8 +350,8 @@ private struct DictionaryPopupView: View {
                         .scrollIndicators(.automatic)
                     }
 
-#if DEBUG
-                    if let timings = presentation.timings {
+                    if presentation.showsPerformanceMetrics,
+                       let timings = presentation.timings {
                         VStack(spacing: 0) {
                             Divider().opacity(0.7)
                             HStack {
@@ -346,7 +366,6 @@ private struct DictionaryPopupView: View {
                             .padding(.vertical, 8)
                         }
                     }
-#endif
                 }
             } else {
                 Color.clear

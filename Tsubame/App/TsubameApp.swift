@@ -1,15 +1,12 @@
-import AppKit
 import SwiftUI
 
 @main
-@MainActor
 struct TsubameApp: App {
-    @State private var model = AppModel()
+    @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
 
     var body: some Scene {
-        WindowGroup {
-            ContentView(model: model)
+        Settings {
+            EmptyView()
         }
-        .defaultSize(width: 700, height: 500)
     }
 }

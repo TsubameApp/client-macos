@@ -6,6 +6,7 @@ enum TsubameLogging {
 
     static let lifecycle = Logger(subsystem: subsystem, category: "lifecycle")
     static let permission = Logger(subsystem: subsystem, category: "permission")
+    static let dictionaryLibrary = Logger(subsystem: subsystem, category: "dictionary.library")
     static let hotkey = Logger(subsystem: subsystem, category: "hotkey")
     static let capture = Logger(subsystem: subsystem, category: "capture.ax")
     static let lookup = Logger(subsystem: subsystem, category: "lookup")
