@@ -92,9 +92,9 @@ struct ContentView: View {
                         ForEach(model.installedDictionaries) { dictionary in
                             DictionaryRow(
                                 dictionary: dictionary,
-                                isActive: dictionary.id == model.activeDictionaryID
+                                isActive: model.enabledDictionaryIDs.contains(dictionary.id)
                             ) {
-                                model.selectDictionary(id: dictionary.id)
+                                model.toggleDictionary(id: dictionary.id)
                             }
                             if dictionary.id != model.installedDictionaries.last?.id {
                                 Divider()
@@ -187,14 +187,13 @@ private struct DictionaryRow: View {
                     .foregroundStyle(.secondary)
             }
             Spacer()
-            if isActive {
-                Label("Active", systemImage: "checkmark")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            } else {
-                Button("Use", action: activate)
-                    .controlSize(.small)
-            }
+            Toggle("Enabled", isOn: Binding(
+                get: { isActive },
+                set: { _ in activate() }
+            ))
+            .labelsHidden()
+            .toggleStyle(.switch)
+            .controlSize(.small)
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 10)

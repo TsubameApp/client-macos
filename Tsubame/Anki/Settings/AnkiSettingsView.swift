@@ -84,10 +84,23 @@ struct AnkiSettingsView: View {
                     ProgressView()
                         .controlSize(.small)
                 }
+                Button("Apply recommended mapping") {
+                    model.applySuggestedMappings()
+                }
+                .disabled(model.modelFieldNames.isEmpty)
             }
             Text("Use text and supported markers. Unsupported Yomitan markers will be validated when mining is added.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
+
+            if !model.mappingIssues.isEmpty {
+                Label(
+                    "Mining is disabled until you \(model.mappingIssues.joined(separator: ", ")).",
+                    systemImage: "exclamationmark.triangle.fill"
+                )
+                .font(.caption)
+                .foregroundStyle(.orange)
+            }
 
             ForEach(model.modelFieldNames, id: \.self) { field in
                 HStack(alignment: .firstTextBaseline, spacing: 10) {

@@ -4,7 +4,7 @@ final class AppPreferences {
     private enum Key {
         static let onboardingCompleted = "onboardingCompleted"
         static let developerModeEnabled = "developerModeEnabled"
-        static let activeDictionaryID = "activeDictionaryID"
+        static let enabledDictionaryIDs = "enabledDictionaryIDs"
     }
 
     private let defaults: UserDefaults
@@ -23,15 +23,17 @@ final class AppPreferences {
         set { defaults.set(newValue, forKey: Key.developerModeEnabled) }
     }
 
-    var activeDictionaryID: UUID? {
+    var enabledDictionaryIDs: Set<UUID>? {
         get {
-            defaults.string(forKey: Key.activeDictionaryID)
-                .flatMap(UUID.init(uuidString:))
+            guard let values = defaults.stringArray(forKey: Key.enabledDictionaryIDs) else {
+                return nil
+            }
+            return Set(values.compactMap(UUID.init(uuidString:)))
         }
         set {
             defaults.set(
-                newValue?.uuidString.lowercased(),
-                forKey: Key.activeDictionaryID
+                newValue?.map(\.uuidString).sorted(),
+                forKey: Key.enabledDictionaryIDs
             )
         }
     }

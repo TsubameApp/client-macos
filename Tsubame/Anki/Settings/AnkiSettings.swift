@@ -8,6 +8,7 @@ struct AnkiSettings: Codable, Sendable, Equatable {
     var tags: [String]
     var fieldTemplates: [String: String]
     var modelFieldNames: [String]
+    var mappingVersion: Int
 
     static let defaults = Self(
         enabled: false,
@@ -16,7 +17,8 @@ struct AnkiSettings: Codable, Sendable, Equatable {
         modelName: "",
         tags: ["tsubame"],
         fieldTemplates: [:],
-        modelFieldNames: []
+        modelFieldNames: [],
+        mappingVersion: 2
     )
 
     init(
@@ -26,7 +28,8 @@ struct AnkiSettings: Codable, Sendable, Equatable {
         modelName: String,
         tags: [String],
         fieldTemplates: [String: String],
-        modelFieldNames: [String] = []
+        modelFieldNames: [String] = [],
+        mappingVersion: Int = 2
     ) {
         self.enabled = enabled
         self.endpoint = endpoint
@@ -35,6 +38,7 @@ struct AnkiSettings: Codable, Sendable, Equatable {
         self.tags = tags
         self.fieldTemplates = fieldTemplates
         self.modelFieldNames = modelFieldNames
+        self.mappingVersion = mappingVersion
     }
 
     init(from decoder: any Decoder) throws {
@@ -49,6 +53,7 @@ struct AnkiSettings: Codable, Sendable, Equatable {
             [String].self,
             forKey: .modelFieldNames
         ) ?? Array(fieldTemplates.keys).sorted()
+        mappingVersion = try container.decodeIfPresent(Int.self, forKey: .mappingVersion) ?? 0
     }
 }
 
@@ -67,11 +72,43 @@ final class AnkiSettingsStore {
         else {
             return .defaults
         }
-        return settings
+        var migrated = settings
+        if migrated.mappingVersion < 1 {
+            for field in migrated.fieldTemplates.keys where
+                migrated.fieldTemplates[field] == "{definition}"
+                    && Self.isDefinitionField(field) {
+                migrated.fieldTemplates[field] = "{definitions}"
+            }
+        }
+        if migrated.mappingVersion < 2 {
+            for field in migrated.fieldTemplates.keys where
+                migrated.fieldTemplates[field] == "{reading}"
+                    && Self.isFuriganaField(field) {
+                migrated.fieldTemplates[field] = "{furigana}"
+            }
+        }
+        guard migrated != settings else { return settings }
+        migrated.mappingVersion = 2
+        save(migrated)
+        return migrated
     }
 
     func save(_ settings: AnkiSettings) {
         guard let data = try? JSONEncoder().encode(settings) else { return }
         defaults.set(data, forKey: Self.key)
+    }
+
+    private static func isDefinitionField(_ field: String) -> Bool {
+        let normalized = field.lowercased().filter { $0.isLetter || $0.isNumber }
+        return [
+            "definition", "maindefinition", "primarydefinition", "glossary", "back",
+            "wordmeaning", "wordmeaningrussian"
+        ].contains(normalized)
+    }
+
+    private static func isFuriganaField(_ field: String) -> Bool {
+        let normalized = field.lowercased().filter { $0.isLetter || $0.isNumber }
+        return ["wordreading", "expressionfurigana", "wordfurigana", "furigana"]
+            .contains(normalized)
     }
 }

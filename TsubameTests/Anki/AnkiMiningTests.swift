@@ -56,26 +56,38 @@ struct AnkiMiningModelTests {
                 deckName: "Mining",
                 modelName: "Lapis",
                 tags: ["tsubame"],
-                fieldTemplates: ["Expression": "{expression}"],
-                modelFieldNames: ["Expression"]
+                fieldTemplates: [
+                    "Expression": "{expression}",
+                    "Reading": "{reading}",
+                    "Meaning": "{definitions}",
+                    "Sentence": "{cloze-sentence}"
+                ],
+                modelFieldNames: ["Expression", "Reading", "Meaning", "Sentence"]
             )
         )
         let settings = AnkiSettingsModel(store: store)
         let service = StubMiningService(result: .added(noteID: 99))
         let model = AnkiMiningModel(settings: settings, service: service)
         let entry = dictionaryEntry()
+        let dictionaryID = UUID()
 
         let task = model.mine(
             requestID: 8,
+            dictionaryID: dictionaryID,
             entry: entry,
             selectedText: "食べました",
+            contextText: "食べました",
             matchedRange: UTF8TextRange(start: 0, end: 6),
             dictionaryTitle: "JMdict",
             sourceApplication: "Safari"
         )
         await task?.value
 
-        #expect(model.state(requestID: 8, entryID: entry.id) == .added(noteID: 99))
+        #expect(model.state(
+            requestID: 8,
+            dictionaryID: dictionaryID,
+            entryID: entry.id
+        ) == .added(noteID: 99))
     }
 }
 
@@ -137,6 +149,7 @@ private func miningCandidate() -> MiningCandidate {
     MiningCandidate(
         entry: dictionaryEntry(),
         selectedText: "食べました",
+        contextText: "食べました",
         matchedRange: UTF8TextRange(start: 0, end: 6),
         dictionaryTitle: "JMdict",
         sourceApplication: "Safari"

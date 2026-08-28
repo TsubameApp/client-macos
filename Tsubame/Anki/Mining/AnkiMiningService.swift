@@ -1,12 +1,17 @@
 import Foundation
+import OSLog
 
 enum AnkiMiningError: LocalizedError, Sendable, Equatable {
-    case incompleteConfiguration
+    case incompleteConfiguration(String? = nil)
 
     var errorDescription: String? {
         switch self {
-        case .incompleteConfiguration:
-            "Enable Anki and choose a deck, note type, and field mapping in Tsubame settings."
+        case .incompleteConfiguration(let details):
+            if let details {
+                "Anki mapping is incomplete: \(details)."
+            } else {
+                "Enable Anki and choose a deck, note type, and field mapping in Tsubame settings."
+            }
         }
     }
 }
@@ -44,6 +49,14 @@ struct AnkiMiningService: AnkiMiningServing {
         let fields = try renderer.render(
             candidate: candidate,
             configuration: configuration
+        )
+        let fieldSummary = fields
+            .filter { !$0.value.isEmpty }
+            .map { "\($0.key)=\($0.value.utf8.count)B" }
+            .sorted()
+            .joined(separator: ",")
+        TsubameLogging.anki.notice(
+            "Anki payload rendered nonEmptyFields=\(fieldSummary, privacy: .public)"
         )
         let note = AnkiNote(
             deckName: configuration.deckName,

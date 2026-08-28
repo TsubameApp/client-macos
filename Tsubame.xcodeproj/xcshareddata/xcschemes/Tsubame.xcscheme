@@ -39,16 +39,6 @@
                ReferencedContainer = "container:Tsubame.xcodeproj">
             </BuildableReference>
          </TestableReference>
-         <TestableReference
-            skipped = "NO"
-            parallelizable = "YES">
-            <BuildableReference
-               BuildableIdentifier = "primary"
-               BlueprintIdentifier = "285A09FB303C8C8300D0BAEA"
-               BuildableName = "TsubameUITests.xctest"
-               ReferencedContainer = "container:Tsubame.xcodeproj">
-            </BuildableReference>
-         </TestableReference>
       </Testables>
    </TestAction>
    <LaunchAction

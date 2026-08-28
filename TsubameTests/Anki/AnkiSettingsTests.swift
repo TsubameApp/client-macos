@@ -48,6 +48,35 @@ struct AnkiSettingsTests {
     }
 
     @Test
+    func migratesAutoMappedDefinitionFieldToAllDefinitions() throws {
+        let suiteName = "AnkiSettingsTests.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        defaults.set(Data(
+            """
+            {
+              "enabled": true,
+              "endpoint": "http://127.0.0.1:8765",
+              "deckName": "Mining",
+              "modelName": "Lapis",
+              "tags": ["tsubame"],
+              "fieldTemplates": {
+                "Word Meaning (Russian)": "{definition}",
+                "Word Reading": "{reading}"
+              },
+              "modelFieldNames": ["Word Meaning (Russian)", "Word Reading"]
+            }
+            """.utf8
+        ), forKey: "ankiSettings")
+
+        let settings = AnkiSettingsStore(defaults: defaults).load()
+
+        #expect(settings.fieldTemplates["Word Meaning (Russian)"] == "{definitions}")
+        #expect(settings.fieldTemplates["Word Reading"] == "{furigana}")
+        #expect(settings.mappingVersion == 2)
+    }
+
+    @Test
     func loadsDecksModelsAndSuggestedFieldMappings() async throws {
         let suiteName = "AnkiSettingsTests.\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suiteName))
@@ -71,8 +100,8 @@ struct AnkiSettingsTests {
                 == ["Word", "Word Reading", "Word Meaning (Russian)", "Sentence"]
         )
         #expect(model.fieldTemplates["Word"] == "{expression}")
-        #expect(model.fieldTemplates["Word Reading"] == "{reading}")
-        #expect(model.fieldTemplates["Word Meaning (Russian)"] == "{definition}")
+        #expect(model.fieldTemplates["Word Reading"] == "{furigana}")
+        #expect(model.fieldTemplates["Word Meaning (Russian)"] == "{definitions}")
         #expect(model.fieldTemplates["Sentence"] == "{cloze-sentence}")
 
         let reloaded = AnkiSettingsStore(defaults: defaults).load()
@@ -80,6 +109,33 @@ struct AnkiSettingsTests {
         #expect(reloaded.deckName == "Mining")
         #expect(reloaded.modelName == "Lapis")
         #expect(reloaded.fieldTemplates == model.fieldTemplates)
+        #expect(model.mappingIssues.isEmpty)
+    }
+
+    @Test
+    func basicFrontBackMappingIsNotMiningReady() throws {
+        let suiteName = "AnkiSettingsTests.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let store = AnkiSettingsStore(defaults: defaults)
+        store.save(AnkiSettings(
+            enabled: true,
+            endpoint: AnkiConnectEndpoint.defaultValue,
+            deckName: "Default",
+            modelName: "Basic",
+            tags: ["tsubame"],
+            fieldTemplates: ["Front": "{expression}", "Back": "{definitions}"],
+            modelFieldNames: ["Front", "Back"]
+        ))
+        let model = AnkiSettingsModel(store: store)
+
+        #expect(model.mappingIssues == [
+            "map a reading or furigana field",
+            "map a sentence field"
+        ])
+        #expect(throws: AnkiMiningError.self) {
+            try model.miningConfiguration()
+        }
     }
 }
 

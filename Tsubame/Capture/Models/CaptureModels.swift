@@ -66,6 +66,7 @@ struct CaptureSnapshot: Sendable, Equatable {
     let anchorCoordinateSpace: CaptureAnchorCoordinateSpace
     let sourceApplication: SourceApplication
     let method: CaptureMethod
+    let contextSource: CaptureContextSource
     let timestamp: Date
 
     init(
@@ -75,6 +76,7 @@ struct CaptureSnapshot: Sendable, Equatable {
         anchorCoordinateSpace: CaptureAnchorCoordinateSpace = .accessibilityTopLeft,
         sourceApplication: SourceApplication,
         method: CaptureMethod,
+        contextSource: CaptureContextSource = .selectionOnly,
         timestamp: Date = .now
     ) throws {
         guard !text.isEmpty else { throw CaptureError.noSelection }
@@ -88,6 +90,7 @@ struct CaptureSnapshot: Sendable, Equatable {
         self.anchorCoordinateSpace = anchorCoordinateSpace
         self.sourceApplication = sourceApplication
         self.method = method
+        self.contextSource = contextSource
         self.timestamp = timestamp
     }
 }

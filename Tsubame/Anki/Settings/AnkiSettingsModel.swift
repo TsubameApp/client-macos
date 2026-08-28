@@ -38,6 +38,7 @@ final class AnkiSettingsModel {
     static let supportedMarkers = [
         "{expression}",
         "{reading}",
+        "{furigana}",
         "{selection-text}",
         "{definition}",
         "{definitions}",
@@ -85,6 +86,31 @@ final class AnkiSettingsModel {
     var isConnected: Bool {
         if case .connected = connectionState { return true }
         return false
+    }
+
+    var mappingIssues: [String] {
+        let templates = fieldTemplates.values.joined(separator: " ")
+        var issues: [String] = []
+        if !templates.contains("{expression}") {
+            issues.append("map an expression field")
+        }
+        if !templates.contains("{definition}") && !templates.contains("{definitions}") {
+            issues.append("map a definition field")
+        }
+        if !templates.contains("{reading}") && !templates.contains("{furigana}") {
+            issues.append("map a reading or furigana field")
+        }
+        if !templates.contains("{sentence}") && !templates.contains("{cloze-sentence}") {
+            issues.append("map a sentence field")
+        }
+        return issues
+    }
+
+    func applySuggestedMappings() {
+        for field in modelFieldNames {
+            fieldTemplates[field] = Self.suggestedTemplate(for: field) ?? ""
+        }
+        persist()
     }
 
     func testConnection() async {
@@ -224,11 +250,13 @@ final class AnkiSettingsModel {
         return switch normalized {
         case "expression", "word", "key", "front":
             "{expression}"
-        case "reading", "expressionreading", "wordreading", "expressionfurigana":
+        case "reading", "expressionreading":
             "{reading}"
+        case "wordreading", "expressionfurigana", "wordfurigana", "furigana":
+            "{furigana}"
         case "definition", "maindefinition", "primarydefinition", "glossary", "back",
              "wordmeaning", "wordmeaningrussian":
-            "{definition}"
+            "{definitions}"
         case "sentence":
             "{cloze-sentence}"
         case "selectiontext":

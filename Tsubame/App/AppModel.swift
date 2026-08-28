@@ -18,9 +18,8 @@ final class AppModel {
         }
     }
     private(set) var onboardingCompleted: Bool
-    private(set) var databaseURL: URL?
     private(set) var installedDictionaries: [InstalledDictionaryRecord] = []
-    private(set) var activeDictionaryID: UUID?
+    private(set) var enabledDictionaryIDs: Set<UUID> = []
     private(set) var isLoadingLibrary = false
     private(set) var isImportingDictionary = false
     private(set) var importProgressText: String?
@@ -41,7 +40,7 @@ final class AppModel {
     @ObservationIgnored private let libraryService: DictionaryLibraryService
     @ObservationIgnored let ankiSettings: AnkiSettingsModel
     @ObservationIgnored private let ankiMining: AnkiMiningModel
-    @ObservationIgnored private var dictionary: DictionaryEngine?
+    @ObservationIgnored private var dictionary: DictionaryCollection?
     @ObservationIgnored private var pipelineTask: Task<Void, Never>?
     @ObservationIgnored private var manualLookupTask: Task<Void, Never>?
     @ObservationIgnored private var nextRequestID: UInt64 = 0
@@ -168,7 +167,8 @@ final class AppModel {
                     progress: progress
                 )
                 installedDictionaries = try await libraryService.load()
-                try activateDictionary(installed)
+                enabledDictionaryIDs.insert(installed.id)
+                try rebuildDictionaryCollection()
                 importProgressText = "Imported \(installed.manifest.title)"
                 importProgressFraction = 1
                 status = "Imported \(installed.manifest.title). Select text and press \(GlobalHotKeyMonitor.displayName)."
@@ -191,13 +191,19 @@ final class AppModel {
         }
     }
 
-    func selectDictionary(id: UUID) {
-        guard let installed = installedDictionaries.first(where: { $0.id == id }) else {
-            return
+    func toggleDictionary(id: UUID) {
+        guard installedDictionaries.contains(where: { $0.id == id }) else { return }
+        let wasEnabled = enabledDictionaryIDs.contains(id)
+        if wasEnabled {
+            enabledDictionaryIDs.remove(id)
+        } else {
+            enabledDictionaryIDs.insert(id)
         }
         do {
-            try activateDictionary(installed)
+            try rebuildDictionaryCollection()
         } catch {
+            if wasEnabled { enabledDictionaryIDs.insert(id) }
+            else { enabledDictionaryIDs.remove(id) }
             status = "Could not open dictionary: \(error.localizedDescription)"
             TsubameLogging.lifecycle.error(
                 "Dictionary open failed id=\(id.uuidString, privacy: .public) error=\(error.localizedDescription, privacy: .public)"
@@ -205,18 +211,19 @@ final class AppModel {
         }
     }
 
-    private func activateDictionary(_ installed: InstalledDictionaryRecord) throws {
+    private func rebuildDictionaryCollection() throws {
         pipelineTask?.cancel()
         manualLookupTask?.cancel()
-        dictionary = try DictionaryEngine(databaseURL: installed.databaseURL)
-        databaseURL = installed.databaseURL
-        activeDictionaryID = installed.id
-        preferences.activeDictionaryID = installed.id
+        let enabled = installedDictionaries.filter { enabledDictionaryIDs.contains($0.id) }
+        dictionary = enabled.isEmpty ? nil : try DictionaryCollection(records: enabled)
+        preferences.enabledDictionaryIDs = enabledDictionaryIDs
         entries = []
         matchedRange = nil
-        status = "Ready: \(installed.manifest.title). Select text and press \(GlobalHotKeyMonitor.displayName)."
+        status = enabled.isEmpty
+            ? "Enable at least one dictionary."
+            : "Ready: \(enabled.count) dictionar\(enabled.count == 1 ? "y" : "ies"). Select text and press \(GlobalHotKeyMonitor.displayName)."
         TsubameLogging.lifecycle.notice(
-            "Dictionary opened id=\(installed.id.uuidString, privacy: .public) title=\(installed.manifest.title, privacy: .public)"
+            "Dictionary collection opened enabled=\(enabled.count, privacy: .public) installed=\(self.installedDictionaries.count, privacy: .public)"
         )
     }
 
@@ -236,8 +243,8 @@ final class AppModel {
                 )
                 try Task.checkCancellation()
                 guard let self else { return }
-                self.entries = result.entries
-                self.matchedRange = result.sourceRange
+                self.entries = result.entries.map(\.entry)
+                self.matchedRange = result.entries.first?.sourceRange
                 self.status = result.entries.isEmpty
                     ? "No dictionary matches found."
                     : "Core returned \(result.entries.count) entries."
@@ -290,7 +297,7 @@ final class AppModel {
 
     private func runCapturePipeline(
         requestID: UInt64,
-        dictionary: DictionaryEngine
+        dictionary: DictionaryCollection
     ) async {
         let clock = ContinuousClock()
         let totalStart = clock.now
@@ -315,8 +322,8 @@ final class AppModel {
             let selectedText = outcome.snapshot.selectedRange.substring(
                 in: outcome.snapshot.text
             ) ?? outcome.snapshot.text
-            entries = outcome.result.entries
-            matchedRange = outcome.result.sourceRange
+            entries = outcome.result.entries.map(\.entry)
+            matchedRange = outcome.result.entries.first?.sourceRange
             status = outcome.result.entries.isEmpty
                 ? "Captured selection; no dictionary matches found."
                 : "Captured from \(outcome.snapshot.sourceApplication.localizedName ?? "another app"); found \(outcome.result.entries.count) entries."
@@ -324,10 +331,8 @@ final class AppModel {
             let initialPresentation = PopupPresentation(
                 requestID: requestID,
                 selectedText: selectedText,
+                contextText: outcome.snapshot.text,
                 sourceApplication: outcome.snapshot.sourceApplication,
-                dictionaryTitle: installedDictionaries.first {
-                    $0.id == activeDictionaryID
-                }?.manifest.title ?? "Dictionary",
                 result: outcome.result,
                 timings: nil,
                 showsPerformanceMetrics: developerModeEnabled
@@ -389,8 +394,7 @@ final class AppModel {
                 )
                 guard !loaded.isEmpty else {
                     dictionary = nil
-                    databaseURL = nil
-                    activeDictionaryID = nil
+                    enabledDictionaryIDs = []
                     status = "Import a Yomitan dictionary to begin."
                     if onboardingCompleted {
                         onMainWindowRequired?()
@@ -398,13 +402,14 @@ final class AppModel {
                     return
                 }
 
-                let preferred = preferences.activeDictionaryID.flatMap { preferredID in
-                    loaded.first(where: { $0.id == preferredID })
-                } ?? loaded[0]
-                try activateDictionary(preferred)
+                let installedIDs = Set(loaded.map(\.id))
+                enabledDictionaryIDs = preferences.enabledDictionaryIDs
+                    .map { $0.intersection(installedIDs) }
+                    ?? installedIDs
+                try rebuildDictionaryCollection()
             } catch {
                 dictionary = nil
-                databaseURL = nil
+                enabledDictionaryIDs = []
                 status = "Could not load dictionary library: \(error.localizedDescription)"
                 TsubameLogging.dictionaryLibrary.error(
                     "Dictionary library load failed error=\(error.localizedDescription, privacy: .public)"

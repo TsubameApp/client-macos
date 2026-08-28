@@ -5,10 +5,11 @@ import OSLog
 
 final class AccessibilityCaptureProvider: CaptureProvider, @unchecked Sendable {
     private struct RawCapture: Sendable {
-        let selectedText: String
+        let text: String
+        let selectedRange: CaptureTextRange
+        let contextSource: CaptureContextSource
         let anchorRectangle: CGRect?
         let anchorCoordinateSpace: CaptureAnchorCoordinateSpace
-        let processIdentifier: Int32
     }
 
     private let queue = DispatchQueue(label: "com.krnya.Tsubame.capture.accessibility")
@@ -65,18 +66,22 @@ final class AccessibilityCaptureProvider: CaptureProvider, @unchecked Sendable {
         try Task.checkCancellation()
 
         let snapshot = try CaptureSnapshot(
-            text: raw.selectedText,
-            selectedRange: .fullRange(of: raw.selectedText),
+            text: raw.text,
+            selectedRange: raw.selectedRange,
             anchorRectangle: raw.anchorRectangle,
             anchorCoordinateSpace: raw.anchorCoordinateSpace,
             sourceApplication: sourceApplication,
-            method: .accessibility
+            method: .accessibility,
+            contextSource: raw.contextSource
         )
 
         TsubameLogging.capture.notice(
-            "request=\(requestID, privacy: .public) captured bytes=\(snapshot.text.utf8.count, privacy: .public) source=\(sourceApplication.bundleIdentifier ?? "unknown", privacy: .public) method=\(snapshot.method.rawValue, privacy: .public) hasBounds=\(snapshot.anchorRectangle != nil, privacy: .public)"
+            "request=\(requestID, privacy: .public) captured contextBytes=\(snapshot.text.utf8.count, privacy: .public) selectedBytes=\(snapshot.selectedRange.end - snapshot.selectedRange.start, privacy: .public) contextSource=\(snapshot.contextSource.rawValue, privacy: .public) source=\(sourceApplication.bundleIdentifier ?? "unknown", privacy: .public) method=\(snapshot.method.rawValue, privacy: .public) hasBounds=\(snapshot.anchorRectangle != nil, privacy: .public)"
         )
-        TsubameLogging.logCapturedText(raw.selectedText, requestID: requestID)
+        TsubameLogging.logCapturedText(
+            raw.selectedRange.substring(in: raw.text) ?? raw.text,
+            requestID: requestID
+        )
         return snapshot
     }
 
@@ -100,10 +105,11 @@ final class AccessibilityCaptureProvider: CaptureProvider, @unchecked Sendable {
             )
         ) {
             return RawCapture(
-                selectedText: selection.text,
+                text: selection.context.text,
+                selectedRange: selection.context.selectedRange,
+                contextSource: selection.context.source,
                 anchorRectangle: selection.bounds,
-                anchorCoordinateSpace: selection.coordinateSpace,
-                processIdentifier: Int32(processIdentifier)
+                anchorCoordinateSpace: selection.coordinateSpace
             )
         }
 
@@ -121,10 +127,11 @@ final class AccessibilityCaptureProvider: CaptureProvider, @unchecked Sendable {
                 )
             ) {
                 return RawCapture(
-                    selectedText: selection.text,
+                    text: selection.context.text,
+                    selectedRange: selection.context.selectedRange,
+                    contextSource: selection.context.source,
                     anchorRectangle: selection.bounds,
-                    anchorCoordinateSpace: selection.coordinateSpace,
-                    processIdentifier: Int32(processIdentifier)
+                    anchorCoordinateSpace: selection.coordinateSpace
                 )
             }
         }
@@ -165,7 +172,7 @@ final class AccessibilityCaptureProvider: CaptureProvider, @unchecked Sendable {
         in roots: [AXUIElement],
         maximumElements: Int = 400
     ) throws -> (
-        text: String,
+        context: CaptureTextContext,
         bounds: CGRect?,
         coordinateSpace: CaptureAnchorCoordinateSpace
     )? {
@@ -195,10 +202,14 @@ final class AccessibilityCaptureProvider: CaptureProvider, @unchecked Sendable {
     private func selection(
         from element: AXUIElement
     ) throws -> (
-        text: String,
+        context: CaptureTextContext,
         bounds: CGRect?,
         coordinateSpace: CaptureAnchorCoordinateSpace
     )? {
+        if let markerSelection = try markerSelection(from: element) {
+            return markerSelection
+        }
+
         if let value = try optionalAttributeValue(
             kAXSelectedTextAttribute as CFString,
             from: element
@@ -209,14 +220,35 @@ final class AccessibilityCaptureProvider: CaptureProvider, @unchecked Sendable {
                     kAXSelectedTextRangeAttribute as CFString,
                     from: element
                 )
+                let fullText = try optionalStringAttribute(
+                    kAXValueAttribute as CFString,
+                    from: element
+                )
+                let context = CaptureTextContext.resolve(
+                    selectedText: text,
+                    fullText: fullText,
+                    selectedUTF16Range: range.map {
+                        NSRange(location: $0.location, length: $0.length)
+                    }
+                )
                 return (
-                    text,
+                    context,
                     range.flatMap { bounds(for: $0, in: element) },
                     .accessibilityTopLeft
                 )
             }
         }
 
+        return nil
+    }
+
+    private func markerSelection(
+        from element: AXUIElement
+    ) throws -> (
+        context: CaptureTextContext,
+        bounds: CGRect?,
+        coordinateSpace: CaptureAnchorCoordinateSpace
+    )? {
         guard let markerRange = try optionalAttributeValue(
             kAXSelectedTextMarkerRangeAttribute as CFString,
             from: element
@@ -232,6 +264,16 @@ final class AccessibilityCaptureProvider: CaptureProvider, @unchecked Sendable {
 
         let text = textValue as! String
         guard !text.isEmpty else { return nil }
+        let sentenceText = try sentenceText(
+            containing: markerRange,
+            in: element
+        )
+        let context = CaptureTextContext.resolve(
+            selectedText: text,
+            fullText: sentenceText,
+            selectedUTF16Range: nil,
+            fullTextSource: .sentenceTextMarker
+        )
         let markerBounds = try optionalParameterizedAttributeValue(
             kAXBoundsForTextMarkerRangeParameterizedAttribute as CFString,
             parameter: markerRange,
@@ -239,7 +281,44 @@ final class AccessibilityCaptureProvider: CaptureProvider, @unchecked Sendable {
         ).flatMap(rectangle(from:))
         // Chromium returns AXBoundsForTextMarkerRange as an NSRect already in
         // AppKit screen coordinates, unlike the regular AX range bounds.
-        return (text, markerBounds, .appKitBottomLeft)
+        return (context, markerBounds, .appKitBottomLeft)
+    }
+
+    private func sentenceText(
+        containing markerRangeValue: CFTypeRef,
+        in element: AXUIElement
+    ) throws -> String? {
+        let markerRange = unsafeDowncast(
+            markerRangeValue,
+            to: AXTextMarkerRange.self
+        )
+        let startMarker = AXTextMarkerRangeCopyStartMarker(markerRange)
+        guard let sentenceRange = try optionalParameterizedAttributeValue(
+            kAXSentenceTextMarkerRangeForTextMarkerParameterizedAttribute as CFString,
+            parameter: startMarker,
+            from: element
+        ), CFGetTypeID(sentenceRange) == AXTextMarkerRangeGetTypeID(),
+              let value = try optionalParameterizedAttributeValue(
+                kAXStringForTextMarkerRangeParameterizedAttribute as CFString,
+                parameter: sentenceRange,
+                from: element
+              ), CFGetTypeID(value) == CFStringGetTypeID()
+        else {
+            return nil
+        }
+        return value as? String
+    }
+
+    private func optionalStringAttribute(
+        _ attribute: CFString,
+        from element: AXUIElement
+    ) throws -> String? {
+        guard let value = try optionalAttributeValue(attribute, from: element),
+              CFGetTypeID(value) == CFStringGetTypeID()
+        else {
+            return nil
+        }
+        return value as? String
     }
 
     private func optionalElementAttribute(

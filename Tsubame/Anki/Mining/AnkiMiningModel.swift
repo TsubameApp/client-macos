@@ -5,6 +5,7 @@ import TsubameCore
 
 struct AnkiMiningKey: Hashable, Sendable {
     let requestID: UInt64
+    let dictionaryID: UUID
     let entryID: Int64
 }
 
@@ -35,8 +36,16 @@ final class AnkiMiningModel {
         settings.enabled
     }
 
-    func state(requestID: UInt64, entryID: Int64) -> AnkiMiningState {
-        states[AnkiMiningKey(requestID: requestID, entryID: entryID)] ?? .idle
+    func state(
+        requestID: UInt64,
+        dictionaryID: UUID,
+        entryID: Int64
+    ) -> AnkiMiningState {
+        states[AnkiMiningKey(
+            requestID: requestID,
+            dictionaryID: dictionaryID,
+            entryID: entryID
+        )] ?? .idle
     }
 
     func beginRequest(_ requestID: UInt64) {
@@ -46,13 +55,19 @@ final class AnkiMiningModel {
     @discardableResult
     func mine(
         requestID: UInt64,
+        dictionaryID: UUID,
         entry: DictionaryEntry,
         selectedText: String,
+        contextText: String,
         matchedRange: UTF8TextRange,
         dictionaryTitle: String,
         sourceApplication: String
     ) -> Task<Void, Never>? {
-        let key = AnkiMiningKey(requestID: requestID, entryID: entry.id)
+        let key = AnkiMiningKey(
+            requestID: requestID,
+            dictionaryID: dictionaryID,
+            entryID: entry.id
+        )
         switch states[key] {
         case .adding, .added:
             return nil
@@ -70,9 +85,13 @@ final class AnkiMiningModel {
         let candidate = MiningCandidate(
             entry: entry,
             selectedText: selectedText,
+            contextText: contextText,
             matchedRange: matchedRange,
             dictionaryTitle: dictionaryTitle,
             sourceApplication: sourceApplication
+        )
+        TsubameLogging.anki.notice(
+            "request=\(requestID, privacy: .public) mining context selectedBytes=\(candidate.selectedText.utf8.count, privacy: .public) sentenceBytes=\(candidate.sentence.utf8.count, privacy: .public) match=\(candidate.sentenceMatchedRange.start, privacy: .public)..<\(candidate.sentenceMatchedRange.end, privacy: .public)"
         )
         states[key] = .adding
         TsubameLogging.anki.notice(

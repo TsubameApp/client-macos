@@ -67,16 +67,20 @@ struct AnkiFieldRenderer: Sendable {
                 + "<b>\(escapeHTML(parts.body))</b>"
                 + escapeHTML(parts.suffix)
         } else {
-            clozeSentence = escapeHTML(candidate.selectedText)
+            clozeSentence = escapeHTML(candidate.sentence)
         }
 
         return [
             ("{expression}", escapeHTML(candidate.expression)),
             ("{reading}", escapeHTML(candidate.reading)),
+            ("{furigana}", escapeHTML(AnkiFuriganaFormatter().format(
+                expression: candidate.expression,
+                reading: candidate.reading
+            ))),
             ("{selection-text}", escapeHTML(candidate.selectedText)),
             ("{definition}", escapeHTML(candidate.definitions.first ?? "")),
             ("{definitions}", definitions.isEmpty ? "" : "<ol>\(definitions)</ol>"),
-            ("{sentence}", escapeHTML(candidate.selectedText)),
+            ("{sentence}", escapeHTML(candidate.sentence)),
             ("{cloze-sentence}", clozeSentence),
             ("{dictionary}", escapeHTML(candidate.dictionaryTitle)),
             ("{source-application}", escapeHTML(candidate.sourceApplication))
@@ -113,7 +117,11 @@ extension AnkiSettingsModel {
               !modelName.isEmpty,
               !modelFieldNames.isEmpty
         else {
-            throw AnkiMiningError.incompleteConfiguration
+            throw AnkiMiningError.incompleteConfiguration()
+        }
+        let issues = mappingIssues
+        guard issues.isEmpty else {
+            throw AnkiMiningError.incompleteConfiguration(issues.joined(separator: ", "))
         }
         return AnkiMiningConfiguration(
             endpoint: try AnkiConnectEndpoint.validate(endpoint),

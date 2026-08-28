@@ -6,9 +6,9 @@ import TsubameCore
 struct PopupPresentation: Sendable {
     let requestID: UInt64
     let selectedText: String
+    let contextText: String
     let sourceApplication: SourceApplication
-    let dictionaryTitle: String
-    let result: LookupResult
+    let result: DictionaryLookupResult
     let timings: PipelineTimings?
     let showsPerformanceMetrics: Bool
 
@@ -16,8 +16,8 @@ struct PopupPresentation: Sendable {
         Self(
             requestID: requestID,
             selectedText: selectedText,
+            contextText: contextText,
             sourceApplication: sourceApplication,
-            dictionaryTitle: dictionaryTitle,
             result: result,
             timings: timings,
             showsPerformanceMetrics: showsPerformanceMetrics
@@ -28,8 +28,8 @@ struct PopupPresentation: Sendable {
         Self(
             requestID: requestID,
             selectedText: selectedText,
+            contextText: contextText,
             sourceApplication: sourceApplication,
-            dictionaryTitle: dictionaryTitle,
             result: result,
             timings: timings,
             showsPerformanceMetrics: showsPerformanceMetrics
@@ -358,7 +358,7 @@ private struct DictionaryPopupView: View {
                     } else {
                         ScrollView {
                             LazyVStack(alignment: .leading, spacing: 16) {
-                                ForEach(presentation.result.entries, id: \.id) { entry in
+                                ForEach(presentation.result.entries) { entry in
                                     PopupEntryView(
                                         entry: entry,
                                         presentation: presentation,
@@ -407,21 +407,25 @@ private struct DictionaryPopupView: View {
 }
 
 private struct PopupEntryView: View {
-    let entry: DictionaryEntry
+    let entry: DictionaryLookupEntry
     let presentation: PopupPresentation
     let ankiMiningModel: AnkiMiningModel?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 7) {
             HStack(alignment: .firstTextBaseline, spacing: 8) {
-                Text(entry.expression)
+                Text(entry.entry.expression)
                     .font(.system(size: 17, weight: .semibold))
-                if !entry.reading.isEmpty, entry.reading != entry.expression {
-                    Text(entry.reading)
+                if !entry.entry.reading.isEmpty,
+                   entry.entry.reading != entry.entry.expression {
+                    Text(entry.entry.reading)
                         .font(.callout)
                         .foregroundStyle(.secondary)
                 }
                 Spacer()
+                Text(entry.dictionaryTitle)
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
                 if let ankiMiningModel, ankiMiningModel.isEnabled {
                     AnkiMineButton(
                         model: ankiMiningModel,
@@ -431,7 +435,7 @@ private struct PopupEntryView: View {
                 }
             }
 
-            ForEach(entry.definitions.prefix(4), id: \.position) { definition in
+            ForEach(entry.entry.definitions.prefix(4), id: \.position) { definition in
                 HStack(alignment: .firstTextBaseline, spacing: 8) {
                     Text("\(definition.position + 1).")
                         .font(.callout)
@@ -449,13 +453,14 @@ private struct PopupEntryView: View {
 
 private struct AnkiMineButton: View {
     @Bindable var model: AnkiMiningModel
-    let entry: DictionaryEntry
+    let entry: DictionaryLookupEntry
     let presentation: PopupPresentation
 
     private var state: AnkiMiningState {
         model.state(
             requestID: presentation.requestID,
-            entryID: entry.id
+            dictionaryID: entry.dictionaryID,
+            entryID: entry.entry.id
         )
     }
 
@@ -508,10 +513,12 @@ private struct AnkiMineButton: View {
     private func mine() {
         model.mine(
             requestID: presentation.requestID,
-            entry: entry,
+            dictionaryID: entry.dictionaryID,
+            entry: entry.entry,
             selectedText: presentation.selectedText,
-            matchedRange: presentation.result.sourceRange,
-            dictionaryTitle: presentation.dictionaryTitle,
+            contextText: presentation.contextText,
+            matchedRange: entry.sourceRange,
+            dictionaryTitle: entry.dictionaryTitle,
             sourceApplication: presentation.sourceApplication.localizedName ?? "Unknown app"
         )
     }

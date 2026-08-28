@@ -5,7 +5,8 @@ struct MiningCandidate: Sendable, Equatable {
     let expression: String
     let reading: String
     let selectedText: String
-    let matchedRange: UTF8TextRange
+    let sentence: String
+    let sentenceMatchedRange: UTF8TextRange
     let definitions: [String]
     let dictionaryTitle: String
     let sourceApplication: String
@@ -13,6 +14,7 @@ struct MiningCandidate: Sendable, Equatable {
     init(
         entry: DictionaryEntry,
         selectedText: String,
+        contextText: String,
         matchedRange: UTF8TextRange,
         dictionaryTitle: String,
         sourceApplication: String
@@ -20,27 +22,35 @@ struct MiningCandidate: Sendable, Equatable {
         expression = entry.expression
         reading = entry.reading
         self.selectedText = selectedText
-        self.matchedRange = matchedRange
+        let context = SentenceContext.extract(
+            from: contextText,
+            matchedRange: matchedRange
+        ) ?? SentenceContext(
+            text: selectedText,
+            matchedRange: .init(start: 0, end: selectedText.utf8.count)
+        )
+        sentence = context.text
+        sentenceMatchedRange = context.matchedRange
         definitions = entry.definitions.compactMap(\.text)
         self.dictionaryTitle = dictionaryTitle
         self.sourceApplication = sourceApplication
     }
 
     var matchedText: String? {
-        substring(in: selectedText, range: matchedRange)
+        substring(in: sentence, range: sentenceMatchedRange)
     }
 
     var clozeParts: (prefix: String, body: String, suffix: String)? {
-        guard let lower = utf8Index(matchedRange.start, in: selectedText),
-              let upper = utf8Index(matchedRange.end, in: selectedText),
+        guard let lower = utf8Index(sentenceMatchedRange.start, in: sentence),
+              let upper = utf8Index(sentenceMatchedRange.end, in: sentence),
               lower <= upper
         else {
             return nil
         }
         return (
-            String(selectedText[..<lower]),
-            String(selectedText[lower..<upper]),
-            String(selectedText[upper...])
+            String(sentence[..<lower]),
+            String(sentence[lower..<upper]),
+            String(sentence[upper...])
         )
     }
 
