@@ -17,6 +17,7 @@
                BuildableIdentifier = "primary"
                BlueprintIdentifier = "285A09E2303C8C8000D0BAEA"
                BuildableName = "Tsubame.app"
+               BlueprintName = "Tsubame"
                ReferencedContainer = "container:Tsubame.xcodeproj">
             </BuildableReference>
          </BuildActionEntry>
@@ -36,6 +37,7 @@
                BuildableIdentifier = "primary"
                BlueprintIdentifier = "285A09F1303C8C8300D0BAEA"
                BuildableName = "TsubameTests.xctest"
+               BlueprintName = "TsubameTests"
                ReferencedContainer = "container:Tsubame.xcodeproj">
             </BuildableReference>
          </TestableReference>
@@ -46,6 +48,7 @@
                BuildableIdentifier = "primary"
                BlueprintIdentifier = "285A09FB303C8C8300D0BAEA"
                BuildableName = "TsubameUITests.xctest"
+               BlueprintName = "TsubameUITests"
                ReferencedContainer = "container:Tsubame.xcodeproj">
             </BuildableReference>
          </TestableReference>
@@ -68,6 +71,7 @@
             BuildableIdentifier = "primary"
             BlueprintIdentifier = "285A09E2303C8C8000D0BAEA"
             BuildableName = "Tsubame.app"
+            BlueprintName = "Tsubame"
             ReferencedContainer = "container:Tsubame.xcodeproj">
          </BuildableReference>
       </BuildableProductRunnable>
@@ -84,6 +88,7 @@
             BuildableIdentifier = "primary"
             BlueprintIdentifier = "285A09E2303C8C8000D0BAEA"
             BuildableName = "Tsubame.app"
+            BlueprintName = "Tsubame"
             ReferencedContainer = "container:Tsubame.xcodeproj">
          </BuildableReference>
       </BuildableProductRunnable>
