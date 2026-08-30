@@ -18,6 +18,7 @@ struct ContentView: View {
 
                 dictionarySection
                 accessibilitySection
+                AnkiSettingsView(model: model.ankiSettings)
                 developerSection
 
                 HStack(alignment: .firstTextBaseline) {
@@ -63,17 +64,11 @@ struct ContentView: View {
                 }
 
                 if model.isImportingDictionary {
-                    VStack(alignment: .leading, spacing: 6) {
-                        if let fraction = model.importProgressFraction {
-                            ProgressView(value: fraction)
-                        } else {
-                            ProgressView()
-                                .controlSize(.small)
-                        }
-                        Text(model.importProgressText ?? "Importing…")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
+                    DictionaryImportProgressView(
+                        title: model.importProgressText ?? "Importing…",
+                        detail: model.importProgressDetail,
+                        fraction: model.importProgressFraction
+                    )
                 }
 
                 if model.isLoadingLibrary {
@@ -91,9 +86,9 @@ struct ContentView: View {
                         ForEach(model.installedDictionaries) { dictionary in
                             DictionaryRow(
                                 dictionary: dictionary,
-                                isActive: dictionary.id == model.activeDictionaryID
+                                isActive: model.enabledDictionaryIDs.contains(dictionary.id)
                             ) {
-                                model.selectDictionary(id: dictionary.id)
+                                model.toggleDictionary(id: dictionary.id)
                             }
                             if dictionary.id != model.installedDictionaries.last?.id {
                                 Divider()
@@ -138,17 +133,31 @@ struct ContentView: View {
 
     private var developerSection: some View {
         GroupBox {
-            HStack {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Developer mode")
-                        .font(.headline)
-                    Text("Show capture, lookup, presentation, and total latency in the popup.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+            VStack(spacing: 12) {
+                HStack {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Developer mode")
+                            .font(.headline)
+                        Text("Show capture, lookup, presentation, and total latency in the popup.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                    Toggle("", isOn: $model.developerModeEnabled)
+                        .labelsHidden()
                 }
-                Spacer()
-                Toggle("", isOn: $model.developerModeEnabled)
-                    .labelsHidden()
+
+                if model.developerModeEnabled {
+                    Divider()
+                    HStack {
+                        Button {
+                            model.openDictionariesFolder()
+                        } label: {
+                            Label("Open Dictionaries Folder", systemImage: "folder")
+                        }
+                        Spacer()
+                    }
+                }
             }
             .padding(4)
         }
@@ -156,15 +165,65 @@ struct ContentView: View {
 
     private func chooseDictionarySource() {
         let panel = NSOpenPanel()
-        panel.title = "Import a Yomitan dictionary"
+        panel.title = "Import Yomitan Dictionaries"
         panel.prompt = "Import"
         panel.canChooseDirectories = true
         panel.canChooseFiles = true
-        panel.allowsMultipleSelection = false
+        panel.allowsMultipleSelection = true
         panel.allowedContentTypes = [.zip]
 
-        guard panel.runModal() == .OK, let sourceURL = panel.url else { return }
-        model.importDictionary(from: sourceURL)
+        guard panel.runModal() == .OK, !panel.urls.isEmpty else { return }
+        model.importDictionaries(from: panel.urls)
+    }
+}
+
+private struct DictionaryImportProgressView: View {
+    let title: String
+    let detail: String?
+    let fraction: Double?
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 12) {
+            Image(systemName: "square.and.arrow.down.on.square.fill")
+                .font(.title3)
+                .foregroundStyle(Color.accentColor)
+                .frame(width: 32, height: 32)
+                .background(Color.accentColor.opacity(0.12), in: RoundedRectangle(cornerRadius: 8))
+
+            VStack(alignment: .leading, spacing: 7) {
+                HStack(alignment: .firstTextBaseline) {
+                    Text(title)
+                        .font(.callout.weight(.semibold))
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                    Spacer(minLength: 12)
+                    if let fraction {
+                        Text(fraction, format: .percent.precision(.fractionLength(0)))
+                            .font(.caption.monospacedDigit())
+                            .foregroundStyle(.secondary)
+                    }
+                }
+
+                if let fraction {
+                    ProgressView(value: fraction)
+                        .progressViewStyle(.linear)
+                } else {
+                    ProgressView()
+                        .controlSize(.small)
+                }
+
+                if let detail {
+                    Text(detail)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                }
+            }
+        }
+        .padding(12)
+        .background(.quaternary.opacity(0.45), in: RoundedRectangle(cornerRadius: 10))
+        .accessibilityElement(children: .combine)
     }
 }
 
@@ -186,14 +245,13 @@ private struct DictionaryRow: View {
                     .foregroundStyle(.secondary)
             }
             Spacer()
-            if isActive {
-                Label("Active", systemImage: "checkmark")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            } else {
-                Button("Use", action: activate)
-                    .controlSize(.small)
-            }
+            Toggle("Enabled", isOn: Binding(
+                get: { isActive },
+                set: { _ in activate() }
+            ))
+            .labelsHidden()
+            .toggleStyle(.switch)
+            .controlSize(.small)
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 10)

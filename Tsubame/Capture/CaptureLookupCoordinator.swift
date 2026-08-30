@@ -3,7 +3,7 @@ import TsubameCore
 
 struct CaptureLookupOutcome: Sendable {
     let snapshot: CaptureSnapshot
-    let result: LookupResult
+    let result: DictionaryLookupResult
     let captureDuration: Duration
     let lookupDuration: Duration
 }

@@ -22,7 +22,7 @@ struct TsubameTests {
     }
 
     @Test
-    func appPreferencesPersistOnboardingDeveloperModeAndActiveDictionary() throws {
+    func appPreferencesPersistOnboardingDeveloperModeAndEnabledDictionaries() throws {
         let suiteName = "TsubameTests.\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suiteName))
         defer { defaults.removePersistentDomain(forName: suiteName) }
@@ -31,12 +31,12 @@ struct TsubameTests {
 
         preferences.onboardingCompleted = true
         preferences.developerModeEnabled = true
-        preferences.activeDictionaryID = dictionaryID
+        preferences.enabledDictionaryIDs = [dictionaryID]
 
         let reloaded = AppPreferences(defaults: defaults)
         #expect(reloaded.onboardingCompleted)
         #expect(reloaded.developerModeEnabled)
-        #expect(reloaded.activeDictionaryID == dictionaryID)
+        #expect(reloaded.enabledDictionaryIDs == [dictionaryID])
     }
 
     @Test
@@ -93,11 +93,9 @@ struct TsubameTests {
         let presentation = PopupPresentation(
             requestID: 1,
             selectedText: "食",
+            contextText: "食",
             sourceApplication: .testValue,
-            result: LookupResult(
-                sourceRange: UTF8TextRange(start: 0, end: 3),
-                entries: []
-            ),
+            result: DictionaryLookupResult(entries: []),
             timings: nil,
             showsPerformanceMetrics: true
         )
@@ -134,6 +132,62 @@ struct TsubameTests {
             CaptureTextRange.fullRange(of: text)
                 == CaptureTextRange(start: 0, end: 15)
         )
+    }
+
+    @Test
+    func captureContextKeepsFullTextAndExactUnicodeSelection() {
+        let context = CaptureTextContext.resolve(
+            selectedText: "食べ",
+            fullText: "前です。彼は食べました。次です。",
+            selectedUTF16Range: NSRange(location: 6, length: 2)
+        )
+
+        #expect(context.text == "前です。彼は食べました。次です。")
+        #expect(context.selectedRange.substring(in: context.text) == "食べ")
+        #expect(context.source == .elementValue)
+    }
+
+    @Test
+    func captureContextReportsSelectionOnlyFallback() {
+        let context = CaptureTextContext.resolve(
+            selectedText: "食べる",
+            fullText: nil,
+            selectedUTF16Range: nil,
+            fullTextSource: .sentenceTextMarker
+        )
+
+        #expect(context.text == "食べる")
+        #expect(context.source == .selectionOnly)
+    }
+
+    @Test
+    func sentenceContextExtractsJapaneseSentenceAndRelativeMatch() throws {
+        let context = try #require(SentenceContext.extract(
+            from: "前です。彼は食べました。次です。",
+            matchedRange: UTF8TextRange(start: 18, end: 24)
+        ))
+
+        #expect(context.text == "彼は食べました。")
+        #expect(context.matchedRange == UTF8TextRange(start: 6, end: 12))
+    }
+
+    @Test
+    func dictionaryCollectionKeepsDictionaryOrderAndIdentity() async throws {
+        let firstID = UUID()
+        let secondID = UUID()
+        let collection = DictionaryCollection(dictionaries: [
+            StaticDictionary(id: firstID, title: "First"),
+            StaticDictionary(id: secondID, title: "Second")
+        ])
+
+        let result = try await collection.lookup(
+            text: "食べる",
+            position: 0,
+            requestID: 1
+        )
+
+        #expect(result.entries.map(\.dictionaryTitle) == ["First", "Second"])
+        #expect(Set(result.entries.map(\.id)).count == 2)
     }
 
     @Test
@@ -254,16 +308,45 @@ private actor RecordingDictionary: DictionaryLookingUp {
         text: String,
         position: Int,
         requestID: UInt64
-    ) async throws -> LookupResult {
+    ) async throws -> DictionaryLookupResult {
         lastRequest = Request(
             text: text,
             position: position,
             requestID: requestID
         )
-        return LookupResult(
-            sourceRange: UTF8TextRange(start: position, end: position),
-            entries: []
+        return DictionaryLookupResult(entries: [])
+    }
+}
+
+private struct StaticDictionary: DictionaryLookingUp {
+    let id: UUID
+    let title: String
+
+    func lookup(
+        text: String,
+        position: Int,
+        requestID: UInt64
+    ) async throws -> DictionaryLookupResult {
+        let entry = DictionaryEntry(
+            id: 1,
+            expression: "食べる",
+            reading: "たべる",
+            definitionTags: nil,
+            rules: "v1",
+            score: 1,
+            sequence: 1,
+            termTags: "",
+            matches: [],
+            definitions: []
         )
+        return DictionaryLookupResult(entries: [
+            DictionaryLookupEntry(
+                dictionaryID: id,
+                dictionaryTitle: title,
+                sourceRange: UTF8TextRange(start: 0, end: 6),
+                entry: entry
+            )
+        ])
     }
 }
 

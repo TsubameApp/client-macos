@@ -18,12 +18,12 @@ final class AppModel {
         }
     }
     private(set) var onboardingCompleted: Bool
-    private(set) var databaseURL: URL?
     private(set) var installedDictionaries: [InstalledDictionaryRecord] = []
-    private(set) var activeDictionaryID: UUID?
+    private(set) var enabledDictionaryIDs: Set<UUID> = []
     private(set) var isLoadingLibrary = false
     private(set) var isImportingDictionary = false
     private(set) var importProgressText: String?
+    private(set) var importProgressDetail: String?
     private(set) var importProgressFraction: Double?
     private(set) var entries: [DictionaryEntry] = []
     private(set) var matchedRange: UTF8TextRange?
@@ -39,7 +39,9 @@ final class AppModel {
     @ObservationIgnored private let hotKeyMonitor: GlobalHotKeyMonitor
     @ObservationIgnored private let preferences: AppPreferences
     @ObservationIgnored private let libraryService: DictionaryLibraryService
-    @ObservationIgnored private var dictionary: DictionaryEngine?
+    @ObservationIgnored let ankiSettings: AnkiSettingsModel
+    @ObservationIgnored private let ankiMining: AnkiMiningModel
+    @ObservationIgnored private var dictionary: DictionaryCollection?
     @ObservationIgnored private var pipelineTask: Task<Void, Never>?
     @ObservationIgnored private var manualLookupTask: Task<Void, Never>?
     @ObservationIgnored private var nextRequestID: UInt64 = 0
@@ -52,7 +54,9 @@ final class AppModel {
         popupController: DictionaryPopupController = .init(),
         hotKeyMonitor: GlobalHotKeyMonitor = .init(),
         preferences: AppPreferences = .init(),
-        libraryService: DictionaryLibraryService = .init()
+        libraryService: DictionaryLibraryService = .init(),
+        ankiSettings: AnkiSettingsModel = .init(),
+        ankiMiningService: any AnkiMiningServing = AnkiMiningService()
     ) {
         self.captureProvider = captureProvider
         self.permissionClient = permissionClient
@@ -60,10 +64,16 @@ final class AppModel {
         self.hotKeyMonitor = hotKeyMonitor
         self.preferences = preferences
         self.libraryService = libraryService
+        self.ankiSettings = ankiSettings
+        ankiMining = AnkiMiningModel(
+            settings: ankiSettings,
+            service: ankiMiningService
+        )
         developerModeEnabled = preferences.developerModeEnabled
         onboardingCompleted = preferences.onboardingCompleted
         permissionStatus = permissionClient.status()
         popupController.setDeveloperModeEnabled(developerModeEnabled)
+        popupController.setAnkiMiningModel(ankiMining)
     }
 
     var shouldShowMainWindowOnLaunch: Bool {
@@ -127,67 +137,136 @@ final class AppModel {
         }
     }
 
-    func importDictionary(from sourceURL: URL) {
-        guard !isImportingDictionary else { return }
+    func importDictionaries(from sourceURLs: [URL]) {
+        guard !isImportingDictionary, !sourceURLs.isEmpty else { return }
+        let sourceCount = sourceURLs.count
         isImportingDictionary = true
-        importProgressText = "Preparing dictionary…"
-        importProgressFraction = nil
-        status = "Importing \(sourceURL.lastPathComponent)…"
-        let hasScopedAccess = sourceURL.startAccessingSecurityScopedResource()
-        TsubameLogging.dictionaryLibrary.notice(
-            "Dictionary import started source=\(sourceURL.lastPathComponent, privacy: .public) scopedAccess=\(hasScopedAccess, privacy: .public)"
-        )
+        importProgressText = sourceCount == 1
+            ? sourceURLs[0].lastPathComponent
+            : "Preparing dictionaries…"
+        importProgressDetail = sourceCount == 1 ? "Starting import" : "0 of \(sourceCount) completed"
+        importProgressFraction = 0
+        status = sourceCount == 1
+            ? "Importing \(sourceURLs[0].lastPathComponent)…"
+            : "Importing \(sourceCount) dictionaries…"
 
-        let progress: DictionaryImportProgressHandler = { [weak self] event in
-            Task { @MainActor in
-                self?.applyImportProgress(event)
-            }
-        }
         Task { [weak self] in
             guard let self else { return }
-            defer {
-                if hasScopedAccess {
-                    sourceURL.stopAccessingSecurityScopedResource()
-                }
-                isImportingDictionary = false
-            }
+            defer { isImportingDictionary = false }
+
+            var installedRecords: [InstalledDictionaryRecord] = []
+            var failures: [(source: String, error: String)] = []
 
             do {
-                let installed = try await libraryService.install(
-                    from: sourceURL,
-                    progress: progress
-                )
-                installedDictionaries = try await libraryService.load()
-                try activateDictionary(installed)
-                importProgressText = "Imported \(installed.manifest.title)"
+                for (offset, sourceURL) in sourceURLs.enumerated() {
+                    try Task.checkCancellation()
+                    let sourceIndex = offset + 1
+                    let sourceName = sourceURL.lastPathComponent
+                    importProgressText = sourceName
+                    importProgressDetail = importProgressDescription(
+                        sourceIndex: sourceIndex,
+                        sourceCount: sourceCount,
+                        detail: "Preparing"
+                    )
+                    importProgressFraction = Double(offset) / Double(sourceCount)
+
+                    let progress: DictionaryImportProgressHandler = { [weak self] event in
+                        Task { @MainActor in
+                            self?.applyImportProgress(
+                                event,
+                                sourceName: sourceName,
+                                sourceIndex: sourceIndex,
+                                sourceCount: sourceCount
+                            )
+                        }
+                    }
+
+                    do {
+                        let installed = try await installDictionary(
+                            from: sourceURL,
+                            progress: progress
+                        )
+                        installedRecords.append(installed)
+                        TsubameLogging.dictionaryLibrary.notice(
+                            "Dictionary installed id=\(installed.id.uuidString, privacy: .public) title=\(installed.manifest.title, privacy: .public)"
+                        )
+                    } catch is CancellationError {
+                        throw CancellationError()
+                    } catch {
+                        failures.append((sourceName, error.localizedDescription))
+                        TsubameLogging.dictionaryLibrary.error(
+                            "Dictionary import failed source=\(sourceName, privacy: .public) error=\(error.localizedDescription, privacy: .public)"
+                        )
+                    }
+                }
+
+                if !installedRecords.isEmpty {
+                    installedDictionaries = try await libraryService.load()
+                    enabledDictionaryIDs.formUnion(installedRecords.map(\.id))
+                    try rebuildDictionaryCollection()
+                    finishOnboarding()
+                }
+
                 importProgressFraction = 1
-                status = "Imported \(installed.manifest.title). Select text and press \(GlobalHotKeyMonitor.displayName)."
-                TsubameLogging.dictionaryLibrary.notice(
-                    "Dictionary installed id=\(installed.id.uuidString, privacy: .public) title=\(installed.manifest.title, privacy: .public)"
+                importProgressText = failures.isEmpty
+                    ? "Import complete"
+                    : "Import finished with warnings"
+                importProgressDetail = "\(installedRecords.count) of \(sourceCount) imported"
+                status = importStatus(
+                    installedRecords: installedRecords,
+                    failures: failures,
+                    sourceCount: sourceCount
                 )
-                finishOnboarding()
             } catch is CancellationError {
                 importProgressText = "Import cancelled."
+                importProgressDetail = nil
                 importProgressFraction = nil
                 status = "Dictionary import was cancelled."
             } catch {
                 importProgressText = nil
+                importProgressDetail = nil
                 importProgressFraction = nil
-                status = "Could not import dictionary: \(error.localizedDescription)"
+                status = "Could not refresh the dictionary library: \(error.localizedDescription)"
                 TsubameLogging.dictionaryLibrary.error(
-                    "Dictionary import failed source=\(sourceURL.lastPathComponent, privacy: .public) error=\(error.localizedDescription, privacy: .public)"
+                    "Dictionary library refresh failed after import error=\(error.localizedDescription, privacy: .public)"
                 )
             }
         }
     }
 
-    func selectDictionary(id: UUID) {
-        guard let installed = installedDictionaries.first(where: { $0.id == id }) else {
-            return
+    func openDictionariesFolder() {
+        let folderURL = libraryService.layout.dictionariesRootURL
+        do {
+            try FileManager.default.createDirectory(
+                at: folderURL,
+                withIntermediateDirectories: true
+            )
+            guard NSWorkspace.shared.open(folderURL) else {
+                status = "Could not open the dictionaries folder."
+                return
+            }
+            status = "Opened the dictionaries folder in Finder."
+        } catch {
+            status = "Could not open the dictionaries folder: \(error.localizedDescription)"
+            TsubameLogging.dictionaryLibrary.error(
+                "Dictionaries folder open failed error=\(error.localizedDescription, privacy: .public)"
+            )
+        }
+    }
+
+    func toggleDictionary(id: UUID) {
+        guard installedDictionaries.contains(where: { $0.id == id }) else { return }
+        let wasEnabled = enabledDictionaryIDs.contains(id)
+        if wasEnabled {
+            enabledDictionaryIDs.remove(id)
+        } else {
+            enabledDictionaryIDs.insert(id)
         }
         do {
-            try activateDictionary(installed)
+            try rebuildDictionaryCollection()
         } catch {
+            if wasEnabled { enabledDictionaryIDs.insert(id) }
+            else { enabledDictionaryIDs.remove(id) }
             status = "Could not open dictionary: \(error.localizedDescription)"
             TsubameLogging.lifecycle.error(
                 "Dictionary open failed id=\(id.uuidString, privacy: .public) error=\(error.localizedDescription, privacy: .public)"
@@ -195,18 +274,19 @@ final class AppModel {
         }
     }
 
-    private func activateDictionary(_ installed: InstalledDictionaryRecord) throws {
+    private func rebuildDictionaryCollection() throws {
         pipelineTask?.cancel()
         manualLookupTask?.cancel()
-        dictionary = try DictionaryEngine(databaseURL: installed.databaseURL)
-        databaseURL = installed.databaseURL
-        activeDictionaryID = installed.id
-        preferences.activeDictionaryID = installed.id
+        let enabled = installedDictionaries.filter { enabledDictionaryIDs.contains($0.id) }
+        dictionary = enabled.isEmpty ? nil : try DictionaryCollection(records: enabled)
+        preferences.enabledDictionaryIDs = enabledDictionaryIDs
         entries = []
         matchedRange = nil
-        status = "Ready: \(installed.manifest.title). Select text and press \(GlobalHotKeyMonitor.displayName)."
+        status = enabled.isEmpty
+            ? "Enable at least one dictionary."
+            : "Ready: \(enabled.count) dictionar\(enabled.count == 1 ? "y" : "ies"). Select text and press \(GlobalHotKeyMonitor.displayName)."
         TsubameLogging.lifecycle.notice(
-            "Dictionary opened id=\(installed.id.uuidString, privacy: .public) title=\(installed.manifest.title, privacy: .public)"
+            "Dictionary collection opened enabled=\(enabled.count, privacy: .public) installed=\(self.installedDictionaries.count, privacy: .public)"
         )
     }
 
@@ -226,8 +306,8 @@ final class AppModel {
                 )
                 try Task.checkCancellation()
                 guard let self else { return }
-                self.entries = result.entries
-                self.matchedRange = result.sourceRange
+                self.entries = result.entries.map(\.entry)
+                self.matchedRange = result.entries.first?.sourceRange
                 self.status = result.entries.isEmpty
                     ? "No dictionary matches found."
                     : "Core returned \(result.entries.count) entries."
@@ -280,7 +360,7 @@ final class AppModel {
 
     private func runCapturePipeline(
         requestID: UInt64,
-        dictionary: DictionaryEngine
+        dictionary: DictionaryCollection
     ) async {
         let clock = ContinuousClock()
         let totalStart = clock.now
@@ -305,8 +385,8 @@ final class AppModel {
             let selectedText = outcome.snapshot.selectedRange.substring(
                 in: outcome.snapshot.text
             ) ?? outcome.snapshot.text
-            entries = outcome.result.entries
-            matchedRange = outcome.result.sourceRange
+            entries = outcome.result.entries.map(\.entry)
+            matchedRange = outcome.result.entries.first?.sourceRange
             status = outcome.result.entries.isEmpty
                 ? "Captured selection; no dictionary matches found."
                 : "Captured from \(outcome.snapshot.sourceApplication.localizedName ?? "another app"); found \(outcome.result.entries.count) entries."
@@ -314,6 +394,7 @@ final class AppModel {
             let initialPresentation = PopupPresentation(
                 requestID: requestID,
                 selectedText: selectedText,
+                contextText: outcome.snapshot.text,
                 sourceApplication: outcome.snapshot.sourceApplication,
                 result: outcome.result,
                 timings: nil,
@@ -376,8 +457,7 @@ final class AppModel {
                 )
                 guard !loaded.isEmpty else {
                     dictionary = nil
-                    databaseURL = nil
-                    activeDictionaryID = nil
+                    enabledDictionaryIDs = []
                     status = "Import a Yomitan dictionary to begin."
                     if onboardingCompleted {
                         onMainWindowRequired?()
@@ -385,13 +465,14 @@ final class AppModel {
                     return
                 }
 
-                let preferred = preferences.activeDictionaryID.flatMap { preferredID in
-                    loaded.first(where: { $0.id == preferredID })
-                } ?? loaded[0]
-                try activateDictionary(preferred)
+                let installedIDs = Set(loaded.map(\.id))
+                enabledDictionaryIDs = preferences.enabledDictionaryIDs
+                    .map { $0.intersection(installedIDs) }
+                    ?? installedIDs
+                try rebuildDictionaryCollection()
             } catch {
                 dictionary = nil
-                databaseURL = nil
+                enabledDictionaryIDs = []
                 status = "Could not load dictionary library: \(error.localizedDescription)"
                 TsubameLogging.dictionaryLibrary.error(
                     "Dictionary library load failed error=\(error.localizedDescription, privacy: .public)"
@@ -401,25 +482,125 @@ final class AppModel {
         }
     }
 
-    private func applyImportProgress(_ event: DictionaryImportProgressEvent) {
+    private func installDictionary(
+        from sourceURL: URL,
+        progress: @escaping DictionaryImportProgressHandler
+    ) async throws -> InstalledDictionaryRecord {
+        let hasScopedAccess = sourceURL.startAccessingSecurityScopedResource()
+        defer {
+            if hasScopedAccess {
+                sourceURL.stopAccessingSecurityScopedResource()
+            }
+        }
+        TsubameLogging.dictionaryLibrary.notice(
+            "Dictionary import started source=\(sourceURL.lastPathComponent, privacy: .public) scopedAccess=\(hasScopedAccess, privacy: .public)"
+        )
+        return try await libraryService.install(from: sourceURL, progress: progress)
+    }
+
+    private func importStatus(
+        installedRecords: [InstalledDictionaryRecord],
+        failures: [(source: String, error: String)],
+        sourceCount: Int
+    ) -> String {
+        if failures.isEmpty, let onlyDictionary = installedRecords.first, sourceCount == 1 {
+            return "Imported \(onlyDictionary.manifest.title). Select text and press \(GlobalHotKeyMonitor.displayName)."
+        }
+        if failures.isEmpty {
+            return "Imported \(installedRecords.count) dictionaries. Select text and press \(GlobalHotKeyMonitor.displayName)."
+        }
+        if installedRecords.isEmpty, let firstFailure = failures.first {
+            return sourceCount == 1
+                ? "Could not import dictionary: \(firstFailure.error)"
+                : "Could not import \(sourceCount) dictionaries. First failure: \(firstFailure.source)."
+        }
+        return "Imported \(installedRecords.count) of \(sourceCount) dictionaries; \(failures.count) failed."
+    }
+
+    private func applyImportProgress(
+        _ event: DictionaryImportProgressEvent,
+        sourceName: String,
+        sourceIndex: Int,
+        sourceCount: Int
+    ) {
         TsubameLogging.dictionaryLibrary.debug(
             "Dictionary import progress event=\(String(describing: event), privacy: .public)"
         )
+        importProgressText = sourceName
         switch event {
         case .phaseStarted(let phase):
-            importProgressText = phase.rawValue.capitalized
-            importProgressFraction = nil
+            updateImportProgress(
+                localFraction: estimatedFraction(for: phase),
+                sourceIndex: sourceIndex,
+                sourceCount: sourceCount,
+                detail: phase.rawValue.capitalized
+            )
         case .phaseFinished:
             break
         case .bankStarted(_, let fileName, let index, let total):
-            importProgressText = "Importing \(fileName) (\(index)/\(total))"
-            importProgressFraction = total > 0 ? Double(index - 1) / Double(total) : nil
+            let bankFraction = total > 0 ? Double(index - 1) / Double(total) : 0
+            updateImportProgress(
+                localFraction: 0.20 + bankFraction * 0.58,
+                sourceIndex: sourceIndex,
+                sourceCount: sourceCount,
+                detail: "Importing \(fileName) (\(index)/\(total))"
+            )
         case .bankFinished(_, let fileName, let index, let total, _, _):
-            importProgressText = "Imported \(fileName) (\(index)/\(total))"
-            importProgressFraction = total > 0 ? Double(index) / Double(total) : nil
+            let bankFraction = total > 0 ? Double(index) / Double(total) : 0
+            updateImportProgress(
+                localFraction: 0.20 + bankFraction * 0.58,
+                sourceIndex: sourceIndex,
+                sourceCount: sourceCount,
+                detail: "Imported \(fileName) (\(index)/\(total))"
+            )
         case .completed:
-            importProgressText = "Finalizing dictionary…"
-            importProgressFraction = 1
+            updateImportProgress(
+                localFraction: 1,
+                sourceIndex: sourceIndex,
+                sourceCount: sourceCount,
+                detail: "Finalizing dictionary…"
+            )
+        }
+    }
+
+    private func updateImportProgress(
+        localFraction: Double,
+        sourceIndex: Int,
+        sourceCount: Int,
+        detail: String
+    ) {
+        let overallFraction = (
+            Double(sourceIndex - 1) + min(max(localFraction, 0), 1)
+        ) / Double(sourceCount)
+        importProgressFraction = max(importProgressFraction ?? 0, overallFraction)
+        importProgressDetail = importProgressDescription(
+            sourceIndex: sourceIndex,
+            sourceCount: sourceCount,
+            detail: detail
+        )
+    }
+
+    private func importProgressDescription(
+        sourceIndex: Int,
+        sourceCount: Int,
+        detail: String
+    ) -> String {
+        sourceCount == 1
+            ? detail
+            : "Dictionary \(sourceIndex) of \(sourceCount) · \(detail)"
+    }
+
+    private func estimatedFraction(for phase: DictionaryImportPhase) -> Double {
+        switch phase {
+        case .sourcePreparation: 0.02
+        case .resourceCopy: 0.08
+        case .databaseTransaction: 0.12
+        case .databaseSchema: 0.16
+        case .databaseIndices: 0.82
+        case .databaseIntegrity: 0.88
+        case .manifest: 0.92
+        case .bundleValidation: 0.95
+        case .publication: 0.98
         }
     }
 }
