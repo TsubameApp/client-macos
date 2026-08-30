@@ -7,6 +7,7 @@ struct AnkiMiningKey: Hashable, Sendable {
     let requestID: UInt64
     let dictionaryID: UUID
     let entryID: Int64
+    let sourceRange: UTF8TextRange
 }
 
 enum AnkiMiningState: Sendable, Equatable {
@@ -39,12 +40,14 @@ final class AnkiMiningModel {
     func state(
         requestID: UInt64,
         dictionaryID: UUID,
-        entryID: Int64
+        entryID: Int64,
+        sourceRange: UTF8TextRange
     ) -> AnkiMiningState {
         states[AnkiMiningKey(
             requestID: requestID,
             dictionaryID: dictionaryID,
-            entryID: entryID
+            entryID: entryID,
+            sourceRange: sourceRange
         )] ?? .idle
     }
 
@@ -66,7 +69,8 @@ final class AnkiMiningModel {
         let key = AnkiMiningKey(
             requestID: requestID,
             dictionaryID: dictionaryID,
-            entryID: entry.id
+            entryID: entry.id,
+            sourceRange: matchedRange
         )
         switch states[key] {
         case .adding, .added:

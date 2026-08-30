@@ -3,7 +3,7 @@ import TsubameCore
 
 struct CaptureLookupOutcome: Sendable {
     let snapshot: CaptureSnapshot
-    let result: DictionaryLookupResult
+    let result: DictionaryScanResult
     let captureDuration: Duration
     let lookupDuration: Duration
 }
@@ -21,9 +21,12 @@ struct CaptureLookupCoordinator: Sendable {
         try Task.checkCancellation()
 
         let lookupStart = clock.now
-        let result = try await dictionary.lookup(
+        let result = try await dictionary.scan(
             text: snapshot.text,
-            position: snapshot.selectedRange.start,
+            range: UTF8TextRange(
+                start: snapshot.selectedRange.start,
+                end: snapshot.selectedRange.end
+            ),
             requestID: requestID
         )
         let lookupDuration = lookupStart.duration(to: clock.now)

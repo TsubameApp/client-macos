@@ -86,8 +86,15 @@ struct AnkiMiningModelTests {
         #expect(model.state(
             requestID: 8,
             dictionaryID: dictionaryID,
-            entryID: entry.id
+            entryID: entry.id,
+            sourceRange: UTF8TextRange(start: 0, end: 6)
         ) == .added(noteID: 99))
+        #expect(model.state(
+            requestID: 8,
+            dictionaryID: dictionaryID,
+            entryID: entry.id,
+            sourceRange: UTF8TextRange(start: 6, end: 12)
+        ) == .idle)
     }
 }
 

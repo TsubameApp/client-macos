@@ -20,6 +20,7 @@ struct DictionaryLookupEntry: Sendable, Equatable, Identifiable {
     struct ID: Sendable, Equatable, Hashable {
         let dictionaryID: UUID
         let entryID: Int64
+        let sourceRange: UTF8TextRange
     }
 
     let dictionaryID: UUID
@@ -27,7 +28,13 @@ struct DictionaryLookupEntry: Sendable, Equatable, Identifiable {
     let sourceRange: UTF8TextRange
     let entry: DictionaryEntry
 
-    var id: ID { ID(dictionaryID: dictionaryID, entryID: entry.id) }
+    var id: ID {
+        ID(
+            dictionaryID: dictionaryID,
+            entryID: entry.id,
+            sourceRange: sourceRange
+        )
+    }
 }
 
 struct DictionaryLookupResult: Sendable, Equatable {

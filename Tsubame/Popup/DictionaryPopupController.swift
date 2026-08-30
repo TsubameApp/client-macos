@@ -8,7 +8,7 @@ struct PopupPresentation: Sendable {
     let selectedText: String
     let contextText: String
     let sourceApplication: SourceApplication
-    let result: DictionaryLookupResult
+    let result: DictionaryScanResult
     let timings: PipelineTimings?
     let showsPerformanceMetrics: Bool
 
@@ -41,16 +41,20 @@ struct PopupPresentation: Sendable {
 final class DictionaryPopupController {
     private let panel: DictionaryPanel
     private let hostingController: NSHostingController<DictionaryPopupView>
+    private let deckModel: DictionaryScanDeckModel
     private var presentation: PopupPresentation?
     private var ankiMiningModel: AnkiMiningModel?
     private var globalDismissMonitor: Any?
     private var localDismissMonitor: Any?
 
     init() {
+        let deckModel = DictionaryScanDeckModel()
+        self.deckModel = deckModel
         hostingController = NSHostingController(
             rootView: DictionaryPopupView(
                 presentation: nil,
-                ankiMiningModel: nil
+                ankiMiningModel: nil,
+                deckModel: deckModel
             )
         )
         panel = DictionaryPanel(
@@ -86,6 +90,10 @@ final class DictionaryPopupController {
 
         ankiMiningModel?.beginRequest(presentation.requestID)
         self.presentation = presentation
+        deckModel.begin(
+            requestID: presentation.requestID,
+            scan: DictionaryScanPresentation(result: presentation.result)
+        )
         updateRootView()
         let panelOrigin = origin(
             for: panel.frame.size,
@@ -103,8 +111,9 @@ final class DictionaryPopupController {
         await Task.yield()
 
         let duration = start.duration(to: clock.now)
+        let scanPresentation = DictionaryScanPresentation(result: presentation.result)
         TsubameLogging.popup.notice(
-            "request=\(presentation.requestID, privacy: .public) popup presented entries=\(presentation.result.entries.count, privacy: .public) durationMs=\(duration.milliseconds, format: .fixed(precision: 2), privacy: .public)"
+            "request=\(presentation.requestID, privacy: .public) popup presented words=\(scanPresentation.sections.count, privacy: .public) entries=\(scanPresentation.entryCount, privacy: .public) durationMs=\(duration.milliseconds, format: .fixed(precision: 2), privacy: .public)"
         )
         return duration
     }
@@ -187,7 +196,8 @@ final class DictionaryPopupController {
     private func updateRootView() {
         hostingController.rootView = DictionaryPopupView(
             presentation: presentation,
-            ankiMiningModel: ankiMiningModel
+            ankiMiningModel: ankiMiningModel,
+            deckModel: deckModel
         )
     }
 
@@ -311,10 +321,14 @@ private final class DictionaryPanel: NSPanel {
 private struct DictionaryPopupView: View {
     let presentation: PopupPresentation?
     let ankiMiningModel: AnkiMiningModel?
+    let deckModel: DictionaryScanDeckModel
 
     var body: some View {
         Group {
             if let presentation {
+                let scanPresentation = DictionaryScanPresentation(
+                    result: presentation.result
+                )
                 VStack(alignment: .leading, spacing: 0) {
                     HStack(spacing: 12) {
                         Image(systemName: "character.book.closed.fill")
@@ -325,8 +339,8 @@ private struct DictionaryPopupView: View {
 
                         VStack(alignment: .leading, spacing: 2) {
                             Text(presentation.selectedText)
-                                .font(.system(size: 23, weight: .semibold))
-                                .lineLimit(1)
+                                .font(.system(size: 20, weight: .semibold))
+                                .lineLimit(2)
 
                             Text(presentation.sourceApplication.localizedName ?? "Unknown app")
                                 .font(.caption)
@@ -335,8 +349,8 @@ private struct DictionaryPopupView: View {
 
                         Spacer()
 
-                        if !presentation.result.entries.isEmpty {
-                            Text("\(presentation.result.entries.count)")
+                        if !scanPresentation.isEmpty {
+                            Text(summary(for: scanPresentation))
                                 .font(.caption.monospacedDigit().weight(.medium))
                                 .foregroundStyle(.secondary)
                                 .padding(.horizontal, 8)
@@ -349,30 +363,19 @@ private struct DictionaryPopupView: View {
 
                     Divider().opacity(0.7)
 
-                    if presentation.result.entries.isEmpty {
+                    if scanPresentation.isEmpty {
                         ContentUnavailableView(
                             "No dictionary matches",
                             systemImage: "character.book.closed"
                         )
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                     } else {
-                        ScrollView {
-                            LazyVStack(alignment: .leading, spacing: 16) {
-                                ForEach(presentation.result.entries) { entry in
-                                    PopupEntryView(
-                                        entry: entry,
-                                        presentation: presentation,
-                                        ankiMiningModel: ankiMiningModel
-                                    )
-                                    if entry.id != presentation.result.entries.last?.id {
-                                        Divider().opacity(0.55)
-                                    }
-                                }
-                            }
-                            .padding(.horizontal, 18)
-                            .padding(.vertical, 16)
-                        }
-                        .scrollIndicators(.automatic)
+                        PopupScanDeckView(
+                            scan: scanPresentation,
+                            presentation: presentation,
+                            ankiMiningModel: ankiMiningModel,
+                            deckModel: deckModel
+                        )
                     }
 
                     if presentation.showsPerformanceMetrics,
@@ -403,6 +406,327 @@ private struct DictionaryPopupView: View {
                 .stroke(.white.opacity(0.13), lineWidth: 1)
         }
         .clipShape(RoundedRectangle(cornerRadius: 16))
+    }
+
+    private func summary(for scan: DictionaryScanPresentation) -> String {
+        let wordLabel = scan.sections.count == 1 ? "word" : "words"
+        let entryLabel = scan.entryCount == 1 ? "entry" : "entries"
+        return "\(scan.sections.count) \(wordLabel) · \(scan.entryCount) \(entryLabel)"
+    }
+}
+
+private struct PopupScanDeckView: View {
+    let scan: DictionaryScanPresentation
+    let presentation: PopupPresentation
+    let ankiMiningModel: AnkiMiningModel?
+    let deckModel: DictionaryScanDeckModel
+
+    private var selectedIndex: Int {
+        deckModel.selectedIndex(in: scan) ?? 0
+    }
+
+    private var selectedSection: DictionaryScanSection? {
+        guard scan.sections.indices.contains(selectedIndex) else { return nil }
+        return scan.sections[selectedIndex]
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            if scan.sections.count > 1 {
+                PopupWordStrip(
+                    sections: scan.sections,
+                    selectedSectionID: deckModel.selectedSectionID,
+                    contextText: presentation.contextText,
+                    select: { deckModel.select($0, in: scan) }
+                )
+                Divider().opacity(0.55)
+            }
+
+            ZStack {
+                RoundedRectangle(cornerRadius: 13)
+                    .fill(.quaternary.opacity(0.22))
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 13)
+                            .stroke(.white.opacity(0.06), lineWidth: 1)
+                    }
+                    .offset(x: -9, y: 6)
+                    .rotationEffect(.degrees(-0.65))
+
+                RoundedRectangle(cornerRadius: 13)
+                    .fill(.quaternary.opacity(0.3))
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 13)
+                            .stroke(.white.opacity(0.08), lineWidth: 1)
+                    }
+                    .offset(x: 9, y: 6)
+                    .rotationEffect(.degrees(0.65))
+
+                if let selectedSection {
+                    PopupActiveScanCard(
+                        section: selectedSection,
+                        sectionIndex: selectedIndex,
+                        sectionCount: scan.sections.count,
+                        presentation: presentation,
+                        ankiMiningModel: ankiMiningModel,
+                        previous: { deckModel.move(by: -1, in: scan) },
+                        next: { deckModel.move(by: 1, in: scan) }
+                    )
+                    .id(selectedSection.id)
+                    .transition(.opacity.combined(with: .scale(scale: 0.985)))
+                }
+            }
+            .animation(.easeInOut(duration: 0.16), value: deckModel.selectedSectionID)
+            .padding(.horizontal, 22)
+            .padding(.top, 12)
+            .padding(.bottom, 14)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+}
+
+private struct PopupWordStrip: View {
+    let sections: [DictionaryScanSection]
+    let selectedSectionID: UTF8TextRange?
+    let contextText: String
+    let select: (UTF8TextRange) -> Void
+
+    var body: some View {
+        ScrollViewReader { proxy in
+            ScrollView(.horizontal) {
+                HStack(spacing: 7) {
+                    ForEach(sections) { section in
+                        let isSelected = section.id == selectedSectionID
+                        Button {
+                            select(section.id)
+                        } label: {
+                            Text(matchedText(for: section))
+                                .font(.callout.weight(isSelected ? .semibold : .regular))
+                                .foregroundStyle(isSelected ? .primary : .secondary)
+                                .padding(.horizontal, 10)
+                                .padding(.vertical, 6)
+                                .background(
+                                    isSelected
+                                        ? Color.accentColor.opacity(0.2)
+                                        : Color.secondary.opacity(0.08),
+                                    in: RoundedRectangle(cornerRadius: 8)
+                                )
+                                .overlay {
+                                    RoundedRectangle(cornerRadius: 8)
+                                        .stroke(
+                                            isSelected ? Color.accentColor.opacity(0.55) : .clear,
+                                            lineWidth: 1
+                                        )
+                                }
+                        }
+                        .buttonStyle(.plain)
+                        .id(section.id)
+                        .accessibilityLabel("Show definitions for \(matchedText(for: section))")
+                    }
+                }
+                .padding(.horizontal, 18)
+                .padding(.vertical, 10)
+            }
+            .scrollIndicators(.hidden)
+            .onChange(of: selectedSectionID) { _, sectionID in
+                guard let sectionID else { return }
+                withAnimation(.easeInOut(duration: 0.16)) {
+                    proxy.scrollTo(sectionID, anchor: .center)
+                }
+            }
+        }
+    }
+
+    private func matchedText(for section: DictionaryScanSection) -> String {
+        section.group.sourceRange.substring(in: contextText)
+            ?? section.group.entries.first?.entry.expression
+            ?? "Match"
+    }
+}
+
+private struct PopupActiveScanCard: View {
+    let section: DictionaryScanSection
+    let sectionIndex: Int
+    let sectionCount: Int
+    let presentation: PopupPresentation
+    let ankiMiningModel: AnkiMiningModel?
+    let previous: () -> Void
+    let next: () -> Void
+
+    private var matchedText: String {
+        section.group.sourceRange.substring(in: presentation.contextText)
+            ?? section.group.entries.first?.entry.expression
+            ?? "Match"
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(alignment: .center, spacing: 10) {
+                VStack(alignment: .leading, spacing: 3) {
+                    HStack(alignment: .firstTextBaseline, spacing: 8) {
+                        Text(matchedText)
+                            .font(.system(size: 19, weight: .semibold))
+                            .textSelection(.enabled)
+                        if let reading {
+                            Text(reading)
+                                .font(.callout)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                    Text("Word \(sectionIndex + 1) of \(sectionCount) · \(entryCountLabel(section.group.entries.count))")
+                        .font(.caption.monospacedDigit())
+                        .foregroundStyle(.tertiary)
+                }
+
+                Spacer(minLength: 8)
+
+                HStack(spacing: 5) {
+                    deckButton(
+                        systemName: "chevron.left",
+                        help: "Previous word",
+                        disabled: sectionIndex == 0,
+                        action: previous
+                    )
+                    deckButton(
+                        systemName: "chevron.right",
+                        help: "Next word",
+                        disabled: sectionIndex == sectionCount - 1,
+                        action: next
+                    )
+                }
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 11)
+
+            Divider().opacity(0.45)
+
+            ScrollView {
+                VStack(alignment: .leading, spacing: 12) {
+                    if !section.alternatives.isEmpty {
+                        DisclosureGroup {
+                            VStack(alignment: .leading, spacing: 14) {
+                                ForEach(section.alternatives) { alternative in
+                                    PopupAlternativeGroupView(
+                                        group: alternative,
+                                        presentation: presentation,
+                                        ankiMiningModel: ankiMiningModel
+                                    )
+                                }
+                            }
+                            .padding(.top, 10)
+                        } label: {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("Alternative matches (\(section.alternatives.count))")
+                                    .font(.caption.weight(.semibold))
+                                Text(alternativeSummary)
+                                    .font(.caption2)
+                                    .foregroundStyle(.tertiary)
+                                    .lineLimit(1)
+                            }
+                            .foregroundStyle(.secondary)
+                        }
+
+                        Divider().opacity(0.35)
+                    }
+
+                    PopupEntriesView(
+                        entries: section.group.entries,
+                        presentation: presentation,
+                        ankiMiningModel: ankiMiningModel
+                    )
+                }
+                .padding(14)
+            }
+            .scrollIndicators(.automatic)
+        }
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 13))
+        .overlay {
+            RoundedRectangle(cornerRadius: 13)
+                .stroke(.white.opacity(0.11), lineWidth: 1)
+        }
+        .clipShape(RoundedRectangle(cornerRadius: 13))
+    }
+
+    private var reading: String? {
+        guard let value = section.group.entries.first?.entry.reading,
+              !value.isEmpty,
+              value != matchedText else { return nil }
+        return value
+    }
+
+    private var alternativeSummary: String {
+        let matches = section.alternatives.prefix(4).map {
+            $0.sourceRange.substring(in: presentation.contextText)
+                ?? $0.entries.first?.entry.expression
+                ?? "Match"
+        }
+        let suffix = section.alternatives.count > matches.count ? " · …" : ""
+        return matches.joined(separator: " · ") + suffix
+    }
+
+    private func entryCountLabel(_ count: Int) -> String {
+        "\(count) \(count == 1 ? "entry" : "entries")"
+    }
+
+    private func deckButton(
+        systemName: String,
+        help: String,
+        disabled: Bool,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            Image(systemName: systemName)
+                .frame(width: 24, height: 24)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.borderless)
+        .disabled(disabled)
+        .help(help)
+    }
+}
+
+private struct PopupAlternativeGroupView: View {
+    let group: DictionaryScanGroup
+    let presentation: PopupPresentation
+    let ankiMiningModel: AnkiMiningModel?
+
+    private var matchedText: String {
+        group.sourceRange.substring(in: presentation.contextText)
+            ?? group.entries.first?.entry.expression
+            ?? "Match"
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 9) {
+            Text(matchedText)
+                .font(.callout.weight(.semibold))
+                .textSelection(.enabled)
+            PopupEntriesView(
+                entries: group.entries,
+                presentation: presentation,
+                ankiMiningModel: ankiMiningModel
+            )
+        }
+    }
+}
+
+private struct PopupEntriesView: View {
+    let entries: [DictionaryLookupEntry]
+    let presentation: PopupPresentation
+    let ankiMiningModel: AnkiMiningModel?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            ForEach(entries) { entry in
+                PopupEntryView(
+                    entry: entry,
+                    presentation: presentation,
+                    ankiMiningModel: ankiMiningModel
+                )
+                if entry.id != entries.last?.id {
+                    Divider().opacity(0.35)
+                }
+            }
+        }
     }
 }
 
@@ -460,7 +784,8 @@ private struct AnkiMineButton: View {
         model.state(
             requestID: presentation.requestID,
             dictionaryID: entry.dictionaryID,
-            entryID: entry.entry.id
+            entryID: entry.entry.id,
+            sourceRange: entry.sourceRange
         )
     }
 
@@ -527,5 +852,18 @@ private struct AnkiMineButton: View {
 private extension CGRect {
     var center: CGPoint {
         CGPoint(x: midX, y: midY)
+    }
+}
+
+private extension UTF8TextRange {
+    func substring(in text: String) -> String? {
+        guard start >= 0, end >= start, end <= text.utf8.count else { return nil }
+        let lowerUTF8 = text.utf8.index(text.utf8.startIndex, offsetBy: start)
+        let upperUTF8 = text.utf8.index(text.utf8.startIndex, offsetBy: end)
+        guard let lower = String.Index(lowerUTF8, within: text),
+              let upper = String.Index(upperUTF8, within: text) else {
+            return nil
+        }
+        return String(text[lower..<upper])
     }
 }

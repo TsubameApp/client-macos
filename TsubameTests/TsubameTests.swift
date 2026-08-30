@@ -130,7 +130,7 @@ struct TsubameTests {
             selectedText: "食",
             contextText: "食",
             sourceApplication: .testValue,
-            result: DictionaryLookupResult(entries: []),
+            result: DictionaryScanResult(groups: []),
             timings: nil,
             showsPerformanceMetrics: true
         )
@@ -309,6 +309,166 @@ struct TsubameTests {
     }
 
     @Test
+    func scanPresentationChoosesLongestNonOverlappingGroupsAndKeepsAlternatives() {
+        let dictionaryID = UUID()
+        let compoundRange = UTF8TextRange(start: 0, end: 9)
+        let prefixRange = UTF8TextRange(start: 0, end: 3)
+        let suffixRange = UTF8TextRange(start: 3, end: 9)
+        let trailingRange = UTF8TextRange(start: 12, end: 18)
+        let result = DictionaryScanResult(groups: [
+            makeScanGroup(
+                dictionaryID: dictionaryID,
+                dictionaryTitle: "Test",
+                sourceRange: suffixRange,
+                entryID: 3,
+                expression: "海岸"
+            ),
+            makeScanGroup(
+                dictionaryID: dictionaryID,
+                dictionaryTitle: "Test",
+                sourceRange: trailingRange,
+                entryID: 4,
+                expression: "読む"
+            ),
+            makeScanGroup(
+                dictionaryID: dictionaryID,
+                dictionaryTitle: "Test",
+                sourceRange: prefixRange,
+                entryID: 2,
+                expression: "東"
+            ),
+            makeScanGroup(
+                dictionaryID: dictionaryID,
+                dictionaryTitle: "Test",
+                sourceRange: compoundRange,
+                entryID: 1,
+                expression: "東海岸"
+            ),
+        ])
+
+        let presentation = DictionaryScanPresentation(result: result)
+
+        #expect(presentation.sections.map(\.group.sourceRange) == [
+            compoundRange,
+            trailingRange,
+        ])
+        #expect(presentation.sections[0].alternatives.map(\.sourceRange) == [
+            prefixRange,
+            suffixRange,
+        ])
+        #expect(presentation.sections[1].alternatives.isEmpty)
+        #expect(presentation.entryCount == 2)
+    }
+
+    @Test
+    func scanPresentationKeepsASingleWordAsOneSection() {
+        let range = UTF8TextRange(start: 0, end: 15)
+        let result = DictionaryScanResult(groups: [
+            makeScanGroup(
+                dictionaryID: UUID(),
+                dictionaryTitle: "Test",
+                sourceRange: range,
+                entryID: 1,
+                expression: "食べる"
+            ),
+        ])
+
+        let presentation = DictionaryScanPresentation(result: result)
+
+        #expect(presentation.sections.count == 1)
+        #expect(presentation.sections[0].group.sourceRange == range)
+        #expect(presentation.sections[0].alternatives.isEmpty)
+        #expect(presentation.entryCount == 1)
+    }
+
+    @Test @MainActor
+    func scanDeckStartsAtFirstWordAndMovesWithinBounds() {
+        let firstRange = UTF8TextRange(start: 0, end: 3)
+        let secondRange = UTF8TextRange(start: 3, end: 9)
+        let presentation = DictionaryScanPresentation(result: DictionaryScanResult(groups: [
+            makeScanGroup(
+                dictionaryID: UUID(),
+                dictionaryTitle: "Test",
+                sourceRange: firstRange,
+                entryID: 1,
+                expression: "東"
+            ),
+            makeScanGroup(
+                dictionaryID: UUID(),
+                dictionaryTitle: "Test",
+                sourceRange: secondRange,
+                entryID: 2,
+                expression: "海岸"
+            ),
+        ]))
+        let deck = DictionaryScanDeckModel()
+
+        deck.begin(requestID: 1, scan: presentation)
+        #expect(deck.selectedSectionID == firstRange)
+
+        deck.move(by: 1, in: presentation)
+        #expect(deck.selectedSectionID == secondRange)
+
+        deck.move(by: 1, in: presentation)
+        #expect(deck.selectedSectionID == secondRange)
+
+        deck.move(by: -1, in: presentation)
+        #expect(deck.selectedSectionID == firstRange)
+    }
+
+    @Test @MainActor
+    func scanDeckPreservesSelectionForUpdatesAndResetsForNewRequests() {
+        let firstRange = UTF8TextRange(start: 0, end: 3)
+        let secondRange = UTF8TextRange(start: 3, end: 9)
+        let presentation = DictionaryScanPresentation(result: DictionaryScanResult(groups: [
+            makeScanGroup(
+                dictionaryID: UUID(),
+                dictionaryTitle: "Test",
+                sourceRange: firstRange,
+                entryID: 1,
+                expression: "東"
+            ),
+            makeScanGroup(
+                dictionaryID: UUID(),
+                dictionaryTitle: "Test",
+                sourceRange: secondRange,
+                entryID: 2,
+                expression: "海岸"
+            ),
+        ]))
+        let deck = DictionaryScanDeckModel()
+
+        deck.begin(requestID: 1, scan: presentation)
+        deck.select(secondRange, in: presentation)
+        deck.begin(requestID: 1, scan: presentation)
+        #expect(deck.selectedSectionID == secondRange)
+
+        deck.begin(requestID: 2, scan: presentation)
+        #expect(deck.selectedSectionID == firstRange)
+    }
+
+    @Test
+    func dictionaryEntryIdentityIncludesItsSourceRange() {
+        let dictionaryID = UUID()
+        let first = makeScanGroup(
+            dictionaryID: dictionaryID,
+            dictionaryTitle: "Test",
+            sourceRange: UTF8TextRange(start: 0, end: 3),
+            entryID: 1,
+            expression: "日"
+        ).entries[0]
+        let second = makeScanGroup(
+            dictionaryID: dictionaryID,
+            dictionaryTitle: "Test",
+            sourceRange: UTF8TextRange(start: 6, end: 9),
+            entryID: 1,
+            expression: "日"
+        ).entries[0]
+
+        #expect(first.id != second.id)
+    }
+
+    @Test
     func rejectsInvalidTextRange() {
         #expect(throws: CaptureError.invalidTextRange) {
             try CaptureSnapshot(
@@ -322,7 +482,7 @@ struct TsubameTests {
     }
 
     @Test
-    func coordinatorPassesCapturedSelectionToDictionary() async throws {
+    func coordinatorScansTheExactCapturedSelection() async throws {
         let snapshot = try CaptureSnapshot(
             text: "食べました",
             selectedRange: .fullRange(of: "食べました"),
@@ -337,12 +497,13 @@ struct TsubameTests {
         )
 
         let outcome = try await coordinator.execute(requestID: 42)
-        let request = await dictionary.lastRequest
+        let request = await dictionary.lastScanRequest
 
         #expect(outcome.snapshot == snapshot)
         #expect(request?.text == "食べました")
-        #expect(request?.position == 0)
+        #expect(request?.range == UTF8TextRange(start: 0, end: 15))
         #expect(request?.requestID == 42)
+        #expect(outcome.result.groups.isEmpty)
     }
 
     @Test

@@ -411,11 +411,12 @@ final class AppModel {
             let selectedText = outcome.snapshot.selectedRange.substring(
                 in: outcome.snapshot.text
             ) ?? outcome.snapshot.text
+            let scanPresentation = DictionaryScanPresentation(result: outcome.result)
             entries = outcome.result.entries.map(\.entry)
-            matchedRange = outcome.result.entries.first?.sourceRange
-            status = outcome.result.entries.isEmpty
+            matchedRange = scanPresentation.sections.first?.group.sourceRange
+            status = scanPresentation.isEmpty
                 ? "Captured selection; no dictionary matches found."
-                : "Captured from \(outcome.snapshot.sourceApplication.localizedName ?? "another app"); found \(outcome.result.entries.count) entries."
+                : "Captured from \(outcome.snapshot.sourceApplication.localizedName ?? "another app"); found \(scanPresentation.sections.count) word\(scanPresentation.sections.count == 1 ? "" : "s") and \(scanPresentation.entryCount) entries."
 
             let initialPresentation = PopupPresentation(
                 requestID: requestID,
