@@ -226,6 +226,89 @@ struct TsubameTests {
     }
 
     @Test
+    func dictionaryCollectionPassesExactScanRange() async throws {
+        let dictionary = RecordingDictionary()
+        let collection = DictionaryCollection(dictionaries: [dictionary])
+        let range = UTF8TextRange(start: 3, end: 18)
+
+        _ = try await collection.scan(
+            text: "前食べました後",
+            range: range,
+            requestID: 43
+        )
+        let request = await dictionary.lastScanRequest
+
+        #expect(request?.text == "前食べました後")
+        #expect(request?.range == range)
+        #expect(request?.requestID == 43)
+    }
+
+    @Test
+    func dictionaryCollectionMergesScanGroupsInSourceAndDictionaryOrder() async throws {
+        let firstID = UUID()
+        let secondID = UUID()
+        let compoundRange = UTF8TextRange(start: 0, end: 9)
+        let prefixRange = UTF8TextRange(start: 0, end: 3)
+        let trailingRange = UTF8TextRange(start: 12, end: 18)
+        let collection = DictionaryCollection(dictionaries: [
+            StaticScanDictionary(
+                groups: [
+                    makeScanGroup(
+                        dictionaryID: firstID,
+                        dictionaryTitle: "First",
+                        sourceRange: trailingRange,
+                        entryID: 3,
+                        expression: "読む"
+                    ),
+                    makeScanGroup(
+                        dictionaryID: firstID,
+                        dictionaryTitle: "First",
+                        sourceRange: compoundRange,
+                        entryID: 1,
+                        expression: "東海岸"
+                    ),
+                ],
+                delay: .milliseconds(20)
+            ),
+            StaticScanDictionary(groups: [
+                makeScanGroup(
+                    dictionaryID: secondID,
+                    dictionaryTitle: "Second",
+                    sourceRange: prefixRange,
+                    entryID: 2,
+                    expression: "東"
+                ),
+                makeScanGroup(
+                    dictionaryID: secondID,
+                    dictionaryTitle: "Second",
+                    sourceRange: compoundRange,
+                    entryID: 1,
+                    expression: "東海岸"
+                ),
+            ])
+        ])
+
+        let result = try await collection.scan(
+            text: "東海岸、読む",
+            range: UTF8TextRange(start: 0, end: 18),
+            requestID: 44
+        )
+
+        #expect(result.groups.map(\.sourceRange) == [
+            compoundRange,
+            prefixRange,
+            trailingRange,
+        ])
+        #expect(result.groups[0].entries.map(\.dictionaryTitle) == ["First", "Second"])
+        #expect(result.entries.map(\.entry.expression) == [
+            "東海岸",
+            "東海岸",
+            "東",
+            "読む",
+        ])
+    }
+
+    @Test
     func rejectsInvalidTextRange() {
         #expect(throws: CaptureError.invalidTextRange) {
             try CaptureSnapshot(
@@ -337,7 +420,14 @@ private actor RecordingDictionary: DictionaryLookingUp {
         let requestID: UInt64
     }
 
+    struct ScanRequest: Sendable {
+        let text: String
+        let range: UTF8TextRange
+        let requestID: UInt64
+    }
+
     private(set) var lastRequest: Request?
+    private(set) var lastScanRequest: ScanRequest?
 
     func lookup(
         text: String,
@@ -350,6 +440,19 @@ private actor RecordingDictionary: DictionaryLookingUp {
             requestID: requestID
         )
         return DictionaryLookupResult(entries: [])
+    }
+
+    func scan(
+        text: String,
+        range: UTF8TextRange,
+        requestID: UInt64
+    ) async throws -> DictionaryScanResult {
+        lastScanRequest = ScanRequest(
+            text: text,
+            range: range,
+            requestID: requestID
+        )
+        return DictionaryScanResult(groups: [])
     }
 }
 
@@ -383,6 +486,92 @@ private struct StaticDictionary: DictionaryLookingUp {
             )
         ])
     }
+
+    func scan(
+        text: String,
+        range: UTF8TextRange,
+        requestID: UInt64
+    ) async throws -> DictionaryScanResult {
+        let result = try await lookup(
+            text: text,
+            position: range.start,
+            requestID: requestID
+        )
+        return DictionaryScanResult(groups: [
+            DictionaryScanGroup(
+                sourceRange: range,
+                entries: result.entries.map { entry in
+                    DictionaryLookupEntry(
+                        dictionaryID: entry.dictionaryID,
+                        dictionaryTitle: entry.dictionaryTitle,
+                        sourceRange: range,
+                        entry: entry.entry
+                    )
+                }
+            ),
+        ])
+    }
+}
+
+private struct StaticScanDictionary: DictionaryLookingUp {
+    let groups: [DictionaryScanGroup]
+    var delay: Duration?
+
+    init(groups: [DictionaryScanGroup], delay: Duration? = nil) {
+        self.groups = groups
+        self.delay = delay
+    }
+
+    func lookup(
+        text: String,
+        position: Int,
+        requestID: UInt64
+    ) async throws -> DictionaryLookupResult {
+        DictionaryLookupResult(entries: [])
+    }
+
+    func scan(
+        text: String,
+        range: UTF8TextRange,
+        requestID: UInt64
+    ) async throws -> DictionaryScanResult {
+        if let delay {
+            try await Task.sleep(for: delay)
+        }
+        return DictionaryScanResult(groups: groups)
+    }
+}
+
+private func makeScanGroup(
+    dictionaryID: UUID,
+    dictionaryTitle: String,
+    sourceRange: UTF8TextRange,
+    entryID: Int64,
+    expression: String
+) -> DictionaryScanGroup {
+    let entry = DictionaryEntry(
+        id: entryID,
+        expression: expression,
+        reading: "",
+        definitionTags: nil,
+        rules: "",
+        score: 1,
+        sequence: 1,
+        termTags: "",
+        matches: [],
+        definitions: []
+    )
+    return DictionaryScanGroup(
+        sourceRange: sourceRange,
+        entries: [
+            DictionaryLookupEntry(
+                dictionaryID: dictionaryID,
+                dictionaryTitle: dictionaryTitle,
+                sourceRange: sourceRange,
+                entry: entry
+            ),
+        ]
+    )
 }
 
 private extension SourceApplication {

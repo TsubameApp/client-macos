@@ -8,6 +8,12 @@ protocol DictionaryLookingUp: Sendable {
         position: Int,
         requestID: UInt64
     ) async throws -> DictionaryLookupResult
+
+    func scan(
+        text: String,
+        range: UTF8TextRange,
+        requestID: UInt64
+    ) async throws -> DictionaryScanResult
 }
 
 struct DictionaryLookupEntry: Sendable, Equatable, Identifiable {
@@ -26,6 +32,21 @@ struct DictionaryLookupEntry: Sendable, Equatable, Identifiable {
 
 struct DictionaryLookupResult: Sendable, Equatable {
     let entries: [DictionaryLookupEntry]
+}
+
+struct DictionaryScanGroup: Sendable, Equatable, Identifiable {
+    let sourceRange: UTF8TextRange
+    let entries: [DictionaryLookupEntry]
+
+    var id: UTF8TextRange { sourceRange }
+}
+
+struct DictionaryScanResult: Sendable, Equatable {
+    let groups: [DictionaryScanGroup]
+
+    var entries: [DictionaryLookupEntry] {
+        groups.flatMap(\.entries)
+    }
 }
 
 actor DictionaryEngine: DictionaryLookingUp {
@@ -79,6 +100,49 @@ actor DictionaryEngine: DictionaryLookingUp {
             }
         )
     }
+
+    func scan(
+        text: String,
+        range: UTF8TextRange,
+        requestID: UInt64
+    ) async throws -> DictionaryScanResult {
+        try Task.checkCancellation()
+        let signpostID = TsubameLogging.signposter.makeSignpostID()
+        let interval = TsubameLogging.signposter.beginInterval("Scan", id: signpostID)
+        defer {
+            TsubameLogging.signposter.endInterval("Scan", interval)
+        }
+
+        TsubameLogging.lookup.debug(
+            "request=\(requestID, privacy: .public) dictionary=\(self.dictionaryTitle, privacy: .public) scan started bytes=\(text.utf8.count, privacy: .public) range=\(range.start, privacy: .public)..<\(range.end, privacy: .public)"
+        )
+        let request = try ScanLookupRequest(
+            text: text,
+            range: range,
+            resultGroupLimit: 100,
+            entriesPerGroupLimit: 100
+        )
+        let results = try lookupService.scan(request)
+        try Task.checkCancellation()
+        let groups = results.map { result in
+            DictionaryScanGroup(
+                sourceRange: result.sourceRange,
+                entries: result.entries.map {
+                    DictionaryLookupEntry(
+                        dictionaryID: dictionaryID,
+                        dictionaryTitle: dictionaryTitle,
+                        sourceRange: result.sourceRange,
+                        entry: $0
+                    )
+                }
+            )
+        }
+        let entryCount = groups.lazy.map(\.entries.count).reduce(0, +)
+        TsubameLogging.lookup.notice(
+            "request=\(requestID, privacy: .public) dictionary=\(self.dictionaryTitle, privacy: .public) scan completed groups=\(groups.count, privacy: .public) entries=\(entryCount, privacy: .public)"
+        )
+        return DictionaryScanResult(groups: groups)
+    }
 }
 
 actor DictionaryCollection: DictionaryLookingUp {
@@ -130,6 +194,58 @@ actor DictionaryCollection: DictionaryLookingUp {
             "request=\(requestID, privacy: .public) collection lookup completed dictionaries=\(self.dictionaries.count, privacy: .public) entries=\(entries.count, privacy: .public)"
         )
         return DictionaryLookupResult(entries: entries)
+    }
+
+    func scan(
+        text: String,
+        range: UTF8TextRange,
+        requestID: UInt64
+    ) async throws -> DictionaryScanResult {
+        TsubameLogging.lookup.debug(
+            "request=\(requestID, privacy: .public) collection scan started dictionaries=\(self.dictionaries.count, privacy: .public) range=\(range.start, privacy: .public)..<\(range.end, privacy: .public)"
+        )
+        let indexed = try await withThrowingTaskGroup(
+            of: (Int, DictionaryScanResult).self
+        ) { group in
+            for (index, dictionary) in dictionaries.enumerated() {
+                group.addTask {
+                    (
+                        index,
+                        try await dictionary.scan(
+                            text: text,
+                            range: range,
+                            requestID: requestID
+                        )
+                    )
+                }
+            }
+            var results: [(Int, DictionaryScanResult)] = []
+            for try await result in group { results.append(result) }
+            return results.sorted { $0.0 < $1.0 }
+        }
+
+        var entriesByRange: [UTF8TextRange: [DictionaryLookupEntry]] = [:]
+        for (_, result) in indexed {
+            for group in result.groups {
+                entriesByRange[group.sourceRange, default: []]
+                    .append(contentsOf: group.entries)
+            }
+        }
+        let groups = entriesByRange
+            .map { sourceRange, entries in
+                DictionaryScanGroup(sourceRange: sourceRange, entries: entries)
+            }
+            .sorted {
+                if $0.sourceRange.start != $1.sourceRange.start {
+                    return $0.sourceRange.start < $1.sourceRange.start
+                }
+                return $0.sourceRange.end > $1.sourceRange.end
+            }
+        let entryCount = groups.lazy.map(\.entries.count).reduce(0, +)
+        TsubameLogging.lookup.notice(
+            "request=\(requestID, privacy: .public) collection scan completed dictionaries=\(self.dictionaries.count, privacy: .public) groups=\(groups.count, privacy: .public) entries=\(entryCount, privacy: .public)"
+        )
+        return DictionaryScanResult(groups: groups)
     }
 }
 
