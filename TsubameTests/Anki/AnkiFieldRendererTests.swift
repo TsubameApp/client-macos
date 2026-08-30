@@ -98,6 +98,32 @@ struct AnkiFieldRendererTests {
     }
 
     @Test
+    func rendersBasicFrontAndBackWithReadingBeforeDefinitions() throws {
+        let fields = try AnkiFieldRenderer().render(
+            candidate: makeCandidate(),
+            configuration: AnkiMiningConfiguration(
+                endpoint: try AnkiConnectEndpoint.validate(
+                    AnkiConnectEndpoint.defaultValue
+                ),
+                deckName: "Default",
+                modelName: "Basic",
+                tags: ["tsubame"],
+                modelFieldNames: ["Front", "Back"],
+                fieldTemplates: [
+                    "Front": "{expression}",
+                    "Back": "{reading}<br>{definitions}"
+                ]
+            )
+        )
+
+        #expect(fields["Front"] == "食べる")
+        #expect(
+            fields["Back"]
+                == "たべる<br><ol><li>to eat &amp; enjoy</li><li>to consume</li></ol>"
+        )
+    }
+
+    @Test
     func rejectsUnsupportedYomitanMarkers() throws {
         let candidate = makeCandidate()
 

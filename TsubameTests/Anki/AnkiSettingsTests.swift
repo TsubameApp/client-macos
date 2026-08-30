@@ -73,7 +73,7 @@ struct AnkiSettingsTests {
 
         #expect(settings.fieldTemplates["Word Meaning (Russian)"] == "{definitions}")
         #expect(settings.fieldTemplates["Word Reading"] == "{furigana}")
-        #expect(settings.mappingVersion == 2)
+        #expect(settings.mappingVersion == 3)
     }
 
     @Test
@@ -113,7 +113,28 @@ struct AnkiSettingsTests {
     }
 
     @Test
-    func basicFrontBackMappingIsNotMiningReady() throws {
+    func basicFrontBackMappingIsSuggestedAndMiningReady() async throws {
+        let suiteName = "AnkiSettingsTests.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let model = AnkiSettingsModel(
+            store: AnkiSettingsStore(defaults: defaults),
+            clientProvider: { _ in BasicAnkiConnectService() }
+        )
+        model.enabled = true
+
+        await model.testConnection()
+        await model.selectModel("Basic")
+        model.deckName = "Default"
+
+        #expect(model.fieldTemplates["Front"] == "{expression}")
+        #expect(model.fieldTemplates["Back"] == "{reading}<br>{definitions}")
+        #expect(model.mappingIssues.isEmpty)
+        #expect(try model.miningConfiguration().modelName == "Basic")
+    }
+
+    @Test
+    func migratesOnlyAutomaticBasicBackMapping() throws {
         let suiteName = "AnkiSettingsTests.\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suiteName))
         defer { defaults.removePersistentDomain(forName: suiteName) }
@@ -124,18 +145,21 @@ struct AnkiSettingsTests {
             deckName: "Default",
             modelName: "Basic",
             tags: ["tsubame"],
-            fieldTemplates: ["Front": "{expression}", "Back": "{definitions}"],
-            modelFieldNames: ["Front", "Back"]
+            fieldTemplates: [
+                "Front": "<b>{expression}</b>",
+                "Back": "{definitions}",
+                "Extra": "Custom {definitions}"
+            ],
+            modelFieldNames: ["Front", "Back", "Extra"],
+            mappingVersion: 2
         ))
-        let model = AnkiSettingsModel(store: store)
 
-        #expect(model.mappingIssues == [
-            "map a reading or furigana field",
-            "map a sentence field"
-        ])
-        #expect(throws: AnkiMiningError.self) {
-            try model.miningConfiguration()
-        }
+        let migrated = store.load()
+
+        #expect(migrated.fieldTemplates["Front"] == "<b>{expression}</b>")
+        #expect(migrated.fieldTemplates["Back"] == "{reading}<br>{definitions}")
+        #expect(migrated.fieldTemplates["Extra"] == "Custom {definitions}")
+        #expect(migrated.mappingVersion == 3)
     }
 }
 
@@ -156,5 +180,16 @@ private struct StaticAnkiConnectService: AnkiConnectServing {
 
     func canAddNote(_ note: AnkiNote) async throws -> Bool { true }
 
+    func addNote(_ note: AnkiNote) async throws -> Int64 { 1 }
+}
+
+private struct BasicAnkiConnectService: AnkiConnectServing {
+    func version() async throws -> Int { 6 }
+    func deckNames() async throws -> [String] { ["Default"] }
+    func modelNames() async throws -> [String] { ["Basic"] }
+    func modelFieldNames(modelName: String) async throws -> [String] {
+        ["Front", "Back"]
+    }
+    func canAddNote(_ note: AnkiNote) async throws -> Bool { true }
     func addNote(_ note: AnkiNote) async throws -> Int64 { 1 }
 }

@@ -18,7 +18,7 @@ struct AnkiSettings: Codable, Sendable, Equatable {
         tags: ["tsubame"],
         fieldTemplates: [:],
         modelFieldNames: [],
-        mappingVersion: 2
+        mappingVersion: 3
     )
 
     init(
@@ -29,7 +29,7 @@ struct AnkiSettings: Codable, Sendable, Equatable {
         tags: [String],
         fieldTemplates: [String: String],
         modelFieldNames: [String] = [],
-        mappingVersion: Int = 2
+        mappingVersion: Int = 3
     ) {
         self.enabled = enabled
         self.endpoint = endpoint
@@ -87,8 +87,17 @@ final class AnkiSettingsStore {
                 migrated.fieldTemplates[field] = "{furigana}"
             }
         }
-        guard migrated != settings else { return settings }
-        migrated.mappingVersion = 2
+        if migrated.mappingVersion < 3 {
+            for field in migrated.fieldTemplates.keys where
+                migrated.fieldTemplates[field] == "{definitions}"
+                    && Self.isBasicBackField(field) {
+                migrated.fieldTemplates[field] = "{reading}<br>{definitions}"
+            }
+        }
+        guard migrated.mappingVersion < 3 || migrated != settings else {
+            return settings
+        }
+        migrated.mappingVersion = 3
         save(migrated)
         return migrated
     }
@@ -110,5 +119,9 @@ final class AnkiSettingsStore {
         let normalized = field.lowercased().filter { $0.isLetter || $0.isNumber }
         return ["wordreading", "expressionfurigana", "wordfurigana", "furigana"]
             .contains(normalized)
+    }
+
+    private static func isBasicBackField(_ field: String) -> Bool {
+        field.lowercased().filter { $0.isLetter || $0.isNumber } == "back"
     }
 }

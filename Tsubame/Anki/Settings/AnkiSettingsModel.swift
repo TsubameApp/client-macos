@@ -100,9 +100,6 @@ final class AnkiSettingsModel {
         if !templates.contains("{reading}") && !templates.contains("{furigana}") {
             issues.append("map a reading or furigana field")
         }
-        if !templates.contains("{sentence}") && !templates.contains("{cloze-sentence}") {
-            issues.append("map a sentence field")
-        }
         return issues
     }
 
@@ -254,7 +251,9 @@ final class AnkiSettingsModel {
             "{reading}"
         case "wordreading", "expressionfurigana", "wordfurigana", "furigana":
             "{furigana}"
-        case "definition", "maindefinition", "primarydefinition", "glossary", "back",
+        case "back":
+            "{reading}<br>{definitions}"
+        case "definition", "maindefinition", "primarydefinition", "glossary",
              "wordmeaning", "wordmeaningrussian":
             "{definitions}"
         case "sentence":
