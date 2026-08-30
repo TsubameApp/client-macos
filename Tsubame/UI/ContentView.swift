@@ -83,13 +83,20 @@ struct ContentView: View {
                     .frame(maxWidth: .infinity, minHeight: 130)
                 } else {
                     VStack(spacing: 0) {
-                        ForEach(model.installedDictionaries) { dictionary in
+                        ForEach(
+                            Array(model.installedDictionaries.enumerated()),
+                            id: \.element.id
+                        ) { priorityIndex, dictionary in
                             DictionaryRow(
                                 dictionary: dictionary,
-                                isActive: model.enabledDictionaryIDs.contains(dictionary.id)
-                            ) {
-                                model.toggleDictionary(id: dictionary.id)
-                            }
+                                priority: priorityIndex + 1,
+                                isActive: model.enabledDictionaryIDs.contains(dictionary.id),
+                                canMoveUp: priorityIndex > 0,
+                                canMoveDown: priorityIndex < model.installedDictionaries.count - 1,
+                                activate: { model.toggleDictionary(id: dictionary.id) },
+                                moveUp: { model.moveDictionary(id: dictionary.id, offset: -1) },
+                                moveDown: { model.moveDictionary(id: dictionary.id, offset: 1) }
+                            )
                             if dictionary.id != model.installedDictionaries.last?.id {
                                 Divider()
                             }
@@ -229,11 +236,21 @@ private struct DictionaryImportProgressView: View {
 
 private struct DictionaryRow: View {
     let dictionary: InstalledDictionaryRecord
+    let priority: Int
     let isActive: Bool
+    let canMoveUp: Bool
+    let canMoveDown: Bool
     let activate: () -> Void
+    let moveUp: () -> Void
+    let moveDown: () -> Void
 
     var body: some View {
         HStack(spacing: 12) {
+            Text("\(priority)")
+                .font(.caption.monospacedDigit().weight(.semibold))
+                .foregroundStyle(.secondary)
+                .frame(width: 20)
+                .accessibilityLabel("Priority \(priority)")
             Image(systemName: isActive ? "book.closed.fill" : "book.closed")
                 .foregroundStyle(isActive ? Color.accentColor : Color.secondary)
                 .frame(width: 24)
@@ -245,6 +262,26 @@ private struct DictionaryRow: View {
                     .foregroundStyle(.secondary)
             }
             Spacer()
+            VStack(spacing: 0) {
+                Button(action: moveUp) {
+                    Image(systemName: "chevron.up")
+                        .frame(width: 18, height: 14)
+                }
+                .disabled(!canMoveUp)
+                .help("Increase Priority")
+                .accessibilityLabel("Increase Priority")
+
+                Button(action: moveDown) {
+                    Image(systemName: "chevron.down")
+                        .frame(width: 18, height: 14)
+                }
+                .disabled(!canMoveDown)
+                .help("Decrease Priority")
+                .accessibilityLabel("Decrease Priority")
+            }
+            .buttonStyle(.borderless)
+            .controlSize(.small)
+
             Toggle("Enabled", isOn: Binding(
                 get: { isActive },
                 set: { _ in activate() }

@@ -20,6 +20,7 @@ final class AppModel {
     private(set) var onboardingCompleted: Bool
     private(set) var installedDictionaries: [InstalledDictionaryRecord] = []
     private(set) var enabledDictionaryIDs: Set<UUID> = []
+    private(set) var dictionaryOrderIDs: [UUID] = []
     private(set) var isLoadingLibrary = false
     private(set) var isImportingDictionary = false
     private(set) var importProgressText: String?
@@ -201,7 +202,11 @@ final class AppModel {
                 }
 
                 if !installedRecords.isEmpty {
-                    installedDictionaries = try await libraryService.load()
+                    let loaded = try await libraryService.load()
+                    applyInstalledDictionaries(
+                        loaded,
+                        appending: installedRecords.map(\.id)
+                    )
                     enabledDictionaryIDs.formUnion(installedRecords.map(\.id))
                     try rebuildDictionaryCollection()
                     finishOnboarding()
@@ -270,6 +275,27 @@ final class AppModel {
             status = "Could not open dictionary: \(error.localizedDescription)"
             TsubameLogging.lifecycle.error(
                 "Dictionary open failed id=\(id.uuidString, privacy: .public) error=\(error.localizedDescription, privacy: .public)"
+            )
+        }
+    }
+
+    func moveDictionary(id: UUID, offset: Int) {
+        let previousOrder = dictionaryOrderIDs
+        let movedOrder = DictionaryOrder.moving(previousOrder, id: id, offset: offset)
+        guard movedOrder != previousOrder else { return }
+
+        dictionaryOrderIDs = movedOrder
+        sortInstalledDictionariesByPriority()
+        preferences.dictionaryOrderIDs = movedOrder
+        do {
+            try rebuildDictionaryCollection()
+        } catch {
+            dictionaryOrderIDs = previousOrder
+            sortInstalledDictionariesByPriority()
+            preferences.dictionaryOrderIDs = previousOrder
+            status = "Could not update dictionary priority: \(error.localizedDescription)"
+            TsubameLogging.lifecycle.error(
+                "Dictionary priority update failed id=\(id.uuidString, privacy: .public) error=\(error.localizedDescription, privacy: .public)"
             )
         }
     }
@@ -451,7 +477,7 @@ final class AppModel {
             defer { isLoadingLibrary = false }
             do {
                 let loaded = try await libraryService.load()
-                installedDictionaries = loaded
+                applyInstalledDictionaries(loaded)
                 TsubameLogging.dictionaryLibrary.notice(
                     "Dictionary library loaded count=\(loaded.count, privacy: .public)"
                 )
@@ -480,6 +506,31 @@ final class AppModel {
                 onMainWindowRequired?()
             }
         }
+    }
+
+    private func applyInstalledDictionaries(
+        _ records: [InstalledDictionaryRecord],
+        appending newIDs: [UUID] = []
+    ) {
+        let preferredOrder = dictionaryOrderIDs.isEmpty
+            ? preferences.dictionaryOrderIDs ?? []
+            : dictionaryOrderIDs
+        dictionaryOrderIDs = DictionaryOrder.reconcile(
+            preferred: preferredOrder,
+            installed: records.map(\.id),
+            appending: newIDs
+        )
+        installedDictionaries = records
+        sortInstalledDictionariesByPriority()
+        preferences.dictionaryOrderIDs = dictionaryOrderIDs
+    }
+
+    private func sortInstalledDictionariesByPriority() {
+        var recordsByID: [UUID: InstalledDictionaryRecord] = [:]
+        for record in installedDictionaries {
+            recordsByID[record.id] = record
+        }
+        installedDictionaries = dictionaryOrderIDs.compactMap { recordsByID[$0] }
     }
 
     private func installDictionary(

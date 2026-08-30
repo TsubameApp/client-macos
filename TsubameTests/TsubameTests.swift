@@ -22,21 +22,56 @@ struct TsubameTests {
     }
 
     @Test
-    func appPreferencesPersistOnboardingDeveloperModeAndEnabledDictionaries() throws {
+    func appPreferencesPersistDictionarySettings() throws {
         let suiteName = "TsubameTests.\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suiteName))
         defer { defaults.removePersistentDomain(forName: suiteName) }
-        let dictionaryID = UUID()
+        let firstDictionaryID = UUID()
+        let secondDictionaryID = UUID()
         let preferences = AppPreferences(defaults: defaults)
 
         preferences.onboardingCompleted = true
         preferences.developerModeEnabled = true
-        preferences.enabledDictionaryIDs = [dictionaryID]
+        preferences.enabledDictionaryIDs = [firstDictionaryID]
+        preferences.dictionaryOrderIDs = [secondDictionaryID, firstDictionaryID]
 
         let reloaded = AppPreferences(defaults: defaults)
         #expect(reloaded.onboardingCompleted)
         #expect(reloaded.developerModeEnabled)
-        #expect(reloaded.enabledDictionaryIDs == [dictionaryID])
+        #expect(reloaded.enabledDictionaryIDs == [firstDictionaryID])
+        #expect(reloaded.dictionaryOrderIDs == [secondDictionaryID, firstDictionaryID])
+    }
+
+    @Test
+    func dictionaryOrderReconcilesInstalledAndNewDictionaries() {
+        let firstID = UUID()
+        let secondID = UUID()
+        let removedID = UUID()
+        let thirdID = UUID()
+        let newID = UUID()
+
+        let reconciled = DictionaryOrder.reconcile(
+            preferred: [secondID, removedID, secondID, firstID],
+            installed: [firstID, secondID, thirdID, newID],
+            appending: [newID]
+        )
+
+        #expect(reconciled == [secondID, firstID, thirdID, newID])
+    }
+
+    @Test
+    func dictionaryOrderMovesOnlyWithinBounds() {
+        let firstID = UUID()
+        let secondID = UUID()
+        let thirdID = UUID()
+        let order = [firstID, secondID, thirdID]
+
+        #expect(DictionaryOrder.moving(order, id: secondID, offset: -1)
+            == [secondID, firstID, thirdID])
+        #expect(DictionaryOrder.moving(order, id: secondID, offset: 1)
+            == [firstID, thirdID, secondID])
+        #expect(DictionaryOrder.moving(order, id: firstID, offset: -1) == order)
+        #expect(DictionaryOrder.moving(order, id: thirdID, offset: 1) == order)
     }
 
     @Test
