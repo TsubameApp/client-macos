@@ -1,0 +1,15 @@
+{
+  "originHash" : "6affc075064d7530eb4f6d475897a6a1c45afbf0da60b76c87760f0c6e65816d",
+  "pins" : [
+    {
+      "identity" : "core",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/TsubameApp/Core.git",
+      "state" : {
+        "branch" : "main",
+        "revision" : "dd78d50e6bc705397927c8c54f54c0c0e1df4a4a"
+      }
+    }
+  ],
+  "version" : 3
+}

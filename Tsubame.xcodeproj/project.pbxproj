@@ -190,7 +190,7 @@
 			mainGroup = 285A09DA303C8C8000D0BAEA;
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
-				284C7962303C8E4100483B57 /* XCLocalSwiftPackageReference "../Core" */,
+				284C7962303C8E4100483B57 /* XCRemoteSwiftPackageReference "Core" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 285A09E4303C8C8000D0BAEA /* Products */;
@@ -555,16 +555,21 @@
 		};
 /* End XCConfigurationList section */
 
-/* Begin XCLocalSwiftPackageReference section */
-		284C7962303C8E4100483B57 /* XCLocalSwiftPackageReference "../Core" */ = {
-			isa = XCLocalSwiftPackageReference;
-			relativePath = ../Core;
+/* Begin XCRemoteSwiftPackageReference section */
+		284C7962303C8E4100483B57 /* XCRemoteSwiftPackageReference "Core" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/TsubameApp/Core.git";
+			requirement = {
+				branch = main;
+				kind = branch;
+			};
 		};
-/* End XCLocalSwiftPackageReference section */
+/* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
 		284C7963303C8E4100483B57 /* TsubameCore */ = {
 			isa = XCSwiftPackageProductDependency;
+			package = 284C7962303C8E4100483B57 /* XCRemoteSwiftPackageReference "Core" */;
 			productName = TsubameCore;
 		};
 /* End XCSwiftPackageProductDependency section */
