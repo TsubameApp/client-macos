@@ -1,0 +1,17 @@
+name: Notify umbrella
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  notify:
+    uses: TsubameApp/Tsubame/.github/workflows/notify-submodule-update.yml@main
+    with:
+      component: macOS
+    secrets:
+      automation_token: ${{ secrets.TSUBAME_AUTOMATION_TOKEN }}
