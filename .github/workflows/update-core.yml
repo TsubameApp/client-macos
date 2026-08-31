@@ -1,0 +1,109 @@
+name: Sync TsubameCore package
+
+on:
+  repository_dispatch:
+    types: [core-updated]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: sync-tsubame-core-package
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Validate dispatch source
+        env:
+          AUTOMATION_TOKEN: ${{ secrets.TSUBAME_AUTOMATION_TOKEN }}
+          SOURCE_REPOSITORY: ${{ github.event.client_payload.repository }}
+          SOURCE_SHA: ${{ github.event.client_payload.sha }}
+        run: |
+          set -euo pipefail
+
+          if [[ -z "${AUTOMATION_TOKEN:-}" ]]; then
+            echo "TSUBAME_AUTOMATION_TOKEN is not configured." >&2
+            exit 1
+          fi
+
+          if [[ "${SOURCE_REPOSITORY}" != "TsubameApp/Core" ]]; then
+            echo "Unsupported Core dispatch source: ${SOURCE_REPOSITORY}" >&2
+            exit 1
+          fi
+
+          if [[ ! "${SOURCE_SHA}" =~ ^[0-9a-f]{40,64}$ ]]; then
+            echo "Invalid Core commit: ${SOURCE_SHA}" >&2
+            exit 1
+          fi
+
+      - name: Check out macOS client
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Update resolved Core revision
+        id: update
+        env:
+          REQUESTED_SHA: ${{ github.event.client_payload.sha }}
+        run: |
+          set -euo pipefail
+
+          package_resolved="Tsubame.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved"
+          remote_sha="$(git ls-remote https://github.com/TsubameApp/Core.git refs/heads/main | cut -f1)"
+
+          if [[ ! "${remote_sha}" =~ ^[0-9a-f]{40,64}$ ]]; then
+            echo "Could not resolve the current TsubameApp/Core main commit." >&2
+            exit 1
+          fi
+
+          if [[ "${remote_sha}" != "${REQUESTED_SHA}" ]]; then
+            echo "A newer Core main exists; using ${remote_sha} instead of ${REQUESTED_SHA}."
+          fi
+
+          if grep -Fq "\"revision\" : \"${remote_sha}\"" "${package_resolved}"; then
+            echo "changed=false" >> "${GITHUB_OUTPUT}"
+            echo "Package.resolved already points to Core ${remote_sha}."
+            exit 0
+          fi
+
+          CORE_SHA="${remote_sha}" perl -0pi -e \
+            's{("identity" : "core".*?"revision" : ")[0-9a-f]{40,64}(")}{$1$ENV{CORE_SHA}$2}s' \
+            "${package_resolved}"
+
+          grep -Fq "\"revision\" : \"${remote_sha}\"" "${package_resolved}"
+          git add "${package_resolved}"
+          git diff --cached --check
+          echo "changed=true" >> "${GITHUB_OUTPUT}"
+          echo "core_sha=${remote_sha}" >> "${GITHUB_OUTPUT}"
+          git diff --cached
+
+      - name: Commit and push resolved Core revision
+        if: steps.update.outputs.changed == 'true'
+        env:
+          CORE_SHA: ${{ steps.update.outputs.core_sha }}
+        run: |
+          set -euo pipefail
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit \
+            -m "build: bump TsubameCore package" \
+            -m "Core main: ${CORE_SHA}."
+          git push origin HEAD:main
+
+      - name: Notify umbrella after Core synchronization
+        env:
+          GH_TOKEN: ${{ secrets.TSUBAME_AUTOMATION_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          source_sha="$(git rev-parse HEAD)"
+          gh api \
+            --method POST \
+            repos/TsubameApp/Tsubame/dispatches \
+            -f event_type=submodule-updated \
+            -f "client_payload[repository]=TsubameApp/client-macos" \
+            -f "client_payload[component]=macOS" \
+            -f "client_payload[sha]=${source_sha}"
