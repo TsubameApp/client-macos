@@ -9,6 +9,26 @@ import XCTest
 
 final class TsubameUITests: XCTestCase {
 
+    @MainActor
+    func testDictionaryRichContentFixture() throws {
+        let app = XCUIApplication()
+        app.launchArguments = ["--dictionary-fixture"]
+        app.launch()
+        let window = app.windows["Dictionary P0 fixture"]
+        XCTAssertTrue(window.waitForExistence(timeout: 10))
+        XCTAssertTrue(window.images["dictionary-image"].waitForExistence(timeout: 10))
+        XCTAssertTrue(window.staticTexts["bird"].exists)
+        let details = window.buttons["More details"]
+        XCTAssertTrue(details.exists)
+        details.click()
+        XCTAssertTrue(window.staticTexts["Expanded definition"].waitForExistence(timeout: 3))
+        let screenshot = XCTAttachment(screenshot: window.screenshot())
+        screenshot.name = "Dictionary rich content"
+        screenshot.lifetime = .keepAlways
+        add(screenshot)
+        app.terminate()
+    }
+
     override func setUpWithError() throws {
         // Put setup code here. This method is called before the invocation of each test method in the class.
 

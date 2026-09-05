@@ -42,6 +42,7 @@ final class DictionaryPopupController {
     private let panel: DictionaryPanel
     private let hostingController: NSHostingController<DictionaryPopupView>
     private let deckModel: DictionaryScanDeckModel
+    private let liveState: PopupLiveState
     private var presentation: PopupPresentation?
     private var ankiMiningModel: AnkiMiningModel?
     private var globalDismissMonitor: Any?
@@ -49,12 +50,15 @@ final class DictionaryPopupController {
 
     init() {
         let deckModel = DictionaryScanDeckModel()
+        let liveState = PopupLiveState()
         self.deckModel = deckModel
+        self.liveState = liveState
         hostingController = NSHostingController(
             rootView: DictionaryPopupView(
                 presentation: nil,
                 ankiMiningModel: nil,
-                deckModel: deckModel
+                deckModel: deckModel,
+                liveState: liveState
             )
         )
         panel = DictionaryPanel(
@@ -90,6 +94,8 @@ final class DictionaryPopupController {
 
         ankiMiningModel?.beginRequest(presentation.requestID)
         self.presentation = presentation
+        liveState.timings = presentation.timings
+        liveState.showsPerformanceMetrics = presentation.showsPerformanceMetrics
         deckModel.begin(
             requestID: presentation.requestID,
             scan: DictionaryScanPresentation(result: presentation.result)
@@ -122,14 +128,14 @@ final class DictionaryPopupController {
         guard let presentation else { return }
         let updated = presentation.with(timings: timings)
         self.presentation = updated
-        updateRootView()
+        liveState.timings = timings
     }
 
     func setDeveloperModeEnabled(_ enabled: Bool) {
         guard let presentation else { return }
         let updated = presentation.with(showsPerformanceMetrics: enabled)
         self.presentation = updated
-        updateRootView()
+        liveState.showsPerformanceMetrics = enabled
     }
 
     func setAnkiMiningModel(_ model: AnkiMiningModel) {
@@ -197,7 +203,8 @@ final class DictionaryPopupController {
         hostingController.rootView = DictionaryPopupView(
             presentation: presentation,
             ankiMiningModel: ankiMiningModel,
-            deckModel: deckModel
+            deckModel: deckModel,
+            liveState: liveState
         )
     }
 
@@ -313,6 +320,12 @@ final class DictionaryPopupController {
     }
 }
 
+@MainActor @Observable
+private final class PopupLiveState {
+    var timings: PipelineTimings?
+    var showsPerformanceMetrics = false
+}
+
 private final class DictionaryPanel: NSPanel {
     override var canBecomeKey: Bool { false }
     override var canBecomeMain: Bool { false }
@@ -322,6 +335,7 @@ private struct DictionaryPopupView: View {
     let presentation: PopupPresentation?
     let ankiMiningModel: AnkiMiningModel?
     let deckModel: DictionaryScanDeckModel
+    let liveState: PopupLiveState
 
     var body: some View {
         Group {
@@ -378,8 +392,8 @@ private struct DictionaryPopupView: View {
                         )
                     }
 
-                    if presentation.showsPerformanceMetrics,
-                       let timings = presentation.timings {
+                    if liveState.showsPerformanceMetrics,
+                       let timings = liveState.timings {
                         VStack(spacing: 0) {
                             Divider().opacity(0.7)
                             HStack {
@@ -713,27 +727,46 @@ private struct PopupEntriesView: View {
     let entries: [DictionaryLookupEntry]
     let presentation: PopupPresentation
     let ankiMiningModel: AnkiMiningModel?
+    @State private var articles: [DictionaryArticle]?
+
+    private struct Request: Hashable {
+        let requestID: UInt64
+        let entries: [DictionaryLookupEntry.ID]
+    }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            ForEach(entries) { entry in
-                PopupEntryView(
-                    entry: entry,
-                    presentation: presentation,
-                    ankiMiningModel: ankiMiningModel
-                )
-                if entry.id != entries.last?.id {
-                    Divider().opacity(0.35)
+        LazyVStack(alignment: .leading, spacing: 12) {
+            if let articles {
+                ForEach(articles) { article in
+                    PopupEntryView(article: article, presentation: presentation, ankiMiningModel: ankiMiningModel)
+                    if article.id != articles.last?.id { Divider().opacity(0.35) }
                 }
+            } else {
+                ProgressView("Preparing entries…").controlSize(.small)
             }
+        }
+        .task(id: Request(requestID: presentation.requestID, entries: entries.map(\.id))) {
+            articles = nil
+            do {
+                let grouped = try await DictionaryContentService.shared.articles(entries)
+                try Task.checkCancellation()
+                articles = grouped
+            } catch is CancellationError { }
+            catch { articles = entries.map { .init(variants: [$0]) } }
         }
     }
 }
 
 private struct PopupEntryView: View {
-    let entry: DictionaryLookupEntry
+    let article: DictionaryArticle
     let presentation: PopupPresentation
     let ankiMiningModel: AnkiMiningModel?
+    @State private var content: DictionaryContent?
+    @State private var contentError: String?
+    @State private var selectedVariant: Int64?
+    private var entry: DictionaryLookupEntry {
+        article.variants.first { $0.entry.id == selectedVariant } ?? article.variants[0]
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 7) {
@@ -742,7 +775,7 @@ private struct PopupEntryView: View {
                     .font(.system(size: 17, weight: .semibold))
                 if !entry.entry.reading.isEmpty,
                    entry.entry.reading != entry.entry.expression {
-                    Text(entry.entry.reading)
+                    Text(article.variants.map(\.entry.reading).reduce(into: [String]()) { if !$0.contains($1) { $0.append($1) } }.joined(separator: " / "))
                         .font(.callout)
                         .foregroundStyle(.secondary)
                 }
@@ -753,25 +786,74 @@ private struct PopupEntryView: View {
                 if let ankiMiningModel, ankiMiningModel.isEnabled {
                     AnkiMineButton(
                         model: ankiMiningModel,
-                        entry: entry,
+                        entry: miningEntry,
                         presentation: presentation
                     )
+                    .disabled((entry.entry.definitions.contains { $0.text == nil } && content == nil)
+                              || (article.variants.count > 1 && selectedVariant == nil))
                 }
             }
 
-            ForEach(entry.entry.definitions.prefix(4), id: \.position) { definition in
-                HStack(alignment: .firstTextBaseline, spacing: 8) {
-                    Text("\(definition.position + 1).")
-                        .font(.callout)
-                        .monospacedDigit()
-                        .foregroundStyle(.tertiary)
-                    Text(definition.text ?? "Structured definition")
-                        .font(.callout)
-                        .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
+            if article.variants.count > 1 {
+                Picker("Reading for metadata / Anki", selection: $selectedVariant) {
+                    Text("Choose reading…").tag(Optional<Int64>.none)
+                    ForEach(article.variants) { variant in
+                        Text(variant.entry.reading).tag(Optional(variant.entry.id))
+                    }
+                }.pickerStyle(.menu).controlSize(.small)
+            }
+            if let content {
+                if article.variants.count == 1 || selectedVariant != nil {
+                EntryMetadataView(content: content)
                 }
+                LazyVStack(alignment: .leading, spacing: 6) {
+                ForEach(content.details.definitions, id: \.position) { definition in
+                    GlossaryView(nodes: definition.nodes, bundleURL: entry.bundleURL)
+                        .font(.callout)
+                }
+                }
+            } else {
+                ForEach(entry.entry.definitions, id: \.position) { definition in
+                    HStack(alignment: .firstTextBaseline, spacing: 8) {
+                        Text("\(definition.position + 1).")
+                            .font(.callout)
+                            .monospacedDigit()
+                            .foregroundStyle(.tertiary)
+                        Text(definition.text ?? (contentError == nil ? "Loading definition…" : "Definition unavailable"))
+                            .font(.callout)
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+                if let contentError { Text(contentError).font(.caption).foregroundStyle(.secondary) }
             }
         }
+        .task(id: "\(presentation.requestID):\(entry.id)") {
+            content = nil
+            contentError = nil
+            do {
+                let loaded = try await DictionaryContentService.shared.load(entry)
+                try Task.checkCancellation()
+                content = loaded
+            } catch is CancellationError { }
+            catch { contentError = error.localizedDescription }
+        }
+    }
+
+    private var miningEntry: DictionaryLookupEntry {
+        guard let content else { return entry }
+        let original = entry.entry
+        return DictionaryLookupEntry(
+            dictionaryID: entry.dictionaryID, dictionaryTitle: entry.dictionaryTitle,
+            sourceRange: entry.sourceRange,
+            entry: DictionaryEntry(
+                id: original.id, expression: original.expression, reading: original.reading,
+                definitionTags: original.definitionTags, rules: original.rules, score: original.score,
+                sequence: original.sequence, termTags: original.termTags, matches: original.matches,
+                definitions: content.details.definitions.map {
+                    DictionaryDefinition(position: $0.position, kind: "text",
+                        text: $0.nodes.map(\.plainText).joined(), contentJSON: Data("null".utf8))
+                }))
     }
 }
 

@@ -27,6 +27,8 @@ struct DictionaryLookupEntry: Sendable, Equatable, Identifiable {
     let dictionaryTitle: String
     let sourceRange: UTF8TextRange
     let entry: DictionaryEntry
+    var bundleURL: URL? = nil
+    var metadataBundleURLs: [URL] = []
 
     var id: ID {
         ID(
@@ -61,10 +63,12 @@ actor DictionaryEngine: DictionaryLookingUp {
     private let dictionaryTitle: String
     private let scopedAccess: SecurityScopedAccess
     private let lookupService: DictionaryLookup
+    private let bundleURL: URL
 
     init(dictionaryID: UUID, dictionaryTitle: String, databaseURL: URL) throws {
         let scopedAccess = SecurityScopedAccess(url: databaseURL)
-        let store = try SQLiteDictionaryStore(databaseURL: databaseURL)
+        let store = try SQLiteDictionaryStore(databaseURL: databaseURL, contentPolicy: .primary)
+        bundleURL = databaseURL.deletingLastPathComponent()
         self.scopedAccess = scopedAccess
         self.dictionaryID = dictionaryID
         self.dictionaryTitle = dictionaryTitle
@@ -102,7 +106,8 @@ actor DictionaryEngine: DictionaryLookingUp {
                     dictionaryID: dictionaryID,
                     dictionaryTitle: dictionaryTitle,
                     sourceRange: result.sourceRange,
-                    entry: $0
+                    entry: $0,
+                    bundleURL: bundleURL
                 )
             }
         )
@@ -139,7 +144,8 @@ actor DictionaryEngine: DictionaryLookingUp {
                         dictionaryID: dictionaryID,
                         dictionaryTitle: dictionaryTitle,
                         sourceRange: result.sourceRange,
-                        entry: $0
+                        entry: $0,
+                        bundleURL: bundleURL
                     )
                 }
             )
@@ -154,8 +160,10 @@ actor DictionaryEngine: DictionaryLookingUp {
 
 actor DictionaryCollection: DictionaryLookingUp {
     private let dictionaries: [any DictionaryLookingUp]
+    private let bundleURLs: [URL]
 
     init(records: [InstalledDictionaryRecord]) throws {
+        bundleURLs = records.map(\.bundleURL)
         dictionaries = try records.map {
             try DictionaryEngine(
                 dictionaryID: $0.id,
@@ -166,6 +174,7 @@ actor DictionaryCollection: DictionaryLookingUp {
     }
 
     init(dictionaries: [any DictionaryLookingUp]) {
+        bundleURLs = []
         self.dictionaries = dictionaries
     }
 
@@ -196,7 +205,11 @@ actor DictionaryCollection: DictionaryLookingUp {
             for try await result in group { results.append(result) }
             return results.sorted { $0.0 < $1.0 }
         }
-        let entries = indexed.flatMap(\.1.entries)
+        let entries = indexed.flatMap(\.1.entries).map { entry in
+            var entry = entry
+            entry.metadataBundleURLs = bundleURLs
+            return entry
+        }
         TsubameLogging.lookup.notice(
             "request=\(requestID, privacy: .public) collection lookup completed dictionaries=\(self.dictionaries.count, privacy: .public) entries=\(entries.count, privacy: .public)"
         )
@@ -235,7 +248,11 @@ actor DictionaryCollection: DictionaryLookingUp {
         for (_, result) in indexed {
             for group in result.groups {
                 entriesByRange[group.sourceRange, default: []]
-                    .append(contentsOf: group.entries)
+                    .append(contentsOf: group.entries.map { entry in
+                        var entry = entry
+                        entry.metadataBundleURLs = bundleURLs
+                        return entry
+                    })
             }
         }
         let groups = entriesByRange

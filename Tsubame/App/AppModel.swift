@@ -305,6 +305,10 @@ final class AppModel {
         manualLookupTask?.cancel()
         let enabled = installedDictionaries.filter { enabledDictionaryIDs.contains($0.id) }
         dictionary = enabled.isEmpty ? nil : try DictionaryCollection(records: enabled)
+        Task {
+            await DictionaryContentService.shared.invalidate()
+            await DictionaryImageLoader.shared.invalidate()
+        }
         preferences.enabledDictionaryIDs = enabledDictionaryIDs
         entries = []
         matchedRange = nil
