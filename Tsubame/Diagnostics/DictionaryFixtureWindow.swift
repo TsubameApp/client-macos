@@ -48,8 +48,8 @@ private struct DictionaryFixtureView: View {
                 Text("鳥 — とり").font(.title)
                 if let content {
                     EntryMetadataView(content: content)
-                    ForEach(content.details.definitions, id: \.position) { definition in
-                        GlossaryView(nodes: definition.nodes, bundleURL: entry.bundleURL)
+                    ForEach(content.preparedDefinitions) { definition in
+                        GlossaryView(glossary: definition.glossary, bundleURL: entry.bundleURL)
                     }
                 } else if let error { Text(error) }
                 else { ProgressView() }

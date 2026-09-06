@@ -2,106 +2,150 @@ import AppKit
 import SwiftUI
 import TsubameCore
 
-struct GlossaryView: View {
-    let nodes: [GlossaryNode]
-    let bundleURL: URL?
+struct PreparedGlossaryDefinition: Sendable, Identifiable {
+    let position: Int
+    let glossary: PreparedGlossary
+    var id: Int { position }
+}
 
-    var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            ForEach(Array(blocks.enumerated()), id: \.offset) { _, block in
-                block
-            }
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
+struct PreparedGlossary: Sendable {
+    let blocks: [PreparedGlossaryBlock]
+
+    init(nodes: [GlossaryNode]) {
+        blocks = GlossaryPreparer.blocks(nodes, path: [])
     }
+}
 
-    // Adjacent text/span nodes form one paragraph, not one vertical row each.
-    private var blocks: [AnyView] {
-        var result: [AnyView] = []
-        var run: [AnyView] = []
+struct PreparedGlossaryBlock: Sendable, Identifiable {
+    let id: String
+    let content: Content
+    let style: GlossaryStyle?
+    let title: String
+
+    indirect enum Content: Sendable {
+        case inline([PreparedGlossaryInlineRun])
+        case image(DictionaryImageReference)
+        case container([PreparedGlossaryBlock])
+        case details(title: String, initiallyOpen: Bool, blocks: [PreparedGlossaryBlock])
+        case list(ordered: Bool, items: [PreparedGlossaryListItem])
+        case ruby(base: String, reading: String)
+        case table([PreparedGlossaryTableRow])
+    }
+}
+
+struct PreparedGlossaryInlineRun: Sendable, Identifiable {
+    let id: String
+    let content: Content
+
+    enum Content: Sendable {
+        case text(AttributedString)
+        case image(DictionaryImageReference)
+    }
+}
+
+struct PreparedGlossaryListItem: Sendable, Identifiable {
+    let id: String
+    let blocks: [PreparedGlossaryBlock]
+}
+
+struct PreparedGlossaryTableRow: Sendable, Identifiable {
+    let id: String
+    let cells: [PreparedGlossaryTableCell]
+}
+
+struct PreparedGlossaryTableCell: Sendable, Identifiable {
+    let id: String
+    let blocks: [PreparedGlossaryBlock]
+    let columnSpan: Int
+}
+
+private enum GlossaryPreparer {
+    static func blocks(_ nodes: [GlossaryNode], path: [Int]) -> [PreparedGlossaryBlock] {
+        var result: [PreparedGlossaryBlock] = []
+        var inlineRuns: [PreparedGlossaryInlineRun] = []
         var text = AttributedString()
+        var textID: String?
+
         func flushText() {
-            if !text.characters.isEmpty { run.append(AnyView(Text(text).textSelection(.enabled))); text = AttributedString() }
+            guard !text.characters.isEmpty else { return }
+            inlineRuns.append(.init(id: textID ?? id(path, suffix: "text"), content: .text(text)))
+            text = AttributedString()
+            textID = nil
         }
-        func flush() {
+        func flushInline() {
             flushText()
-            if !run.isEmpty {
-                let views = run
-                result.append(AnyView(InlineGlossaryLayout(spacing: 2) {
-                    ForEach(Array(views.enumerated()), id: \.offset) { _, view in view }
-                }))
-                run = []
+            guard !inlineRuns.isEmpty else { return }
+            result.append(.init(id: inlineRuns[0].id + ":inline", content: .inline(inlineRuns), style: nil, title: ""))
+            inlineRuns = []
+        }
+
+        for (index, node) in nodes.enumerated() {
+            let nodePath = path + [index]
+            if let value = inlineText(node) {
+                if textID == nil { textID = id(nodePath, suffix: "text") }
+                text += value
+            } else if case .image(let image) = node, image.sizeUnits == "em", (image.height ?? 99) <= 3 {
+                flushText()
+                inlineRuns.append(.init(id: id(nodePath, suffix: "image"), content: .image(image)))
+            } else {
+                flushInline()
+                result.append(block(node, path: nodePath))
             }
         }
-        for node in nodes {
-            if let value = inlineText(node) { text += value }
-            else if case .image(let image) = node, image.sizeUnits == "em", (image.height ?? 99) <= 3 {
-                flushText(); run.append(nodeView(node))
-            }
-            else { flush(); result.append(nodeView(node)) }
-        }
-        flush()
+        flushInline()
         return result
     }
 
-    private func nodeView(_ node: GlossaryNode) -> AnyView {
+    private static func block(_ node: GlossaryNode, path: [Int]) -> PreparedGlossaryBlock {
         switch node {
-        case .text(let text): return AnyView(Text(text).textSelection(.enabled))
-        case .lineBreak: return AnyView(Text(" ").font(.caption))
-        case .image(let reference): return AnyView(DictionaryImageView(reference: reference, bundleURL: bundleURL))
+        case .text(let text):
+            return .init(id: id(path, suffix: "text"), content: .inline([.init(id: id(path, suffix: "run"), content: .text(AttributedString(text)))]), style: nil, title: "")
+        case .lineBreak:
+            return .init(id: id(path, suffix: "break"), content: .inline([.init(id: id(path, suffix: "run"), content: .text(AttributedString("\n")))]), style: nil, title: "")
+        case .image(let reference):
+            return .init(id: id(path, suffix: "image"), content: .image(reference), style: nil, title: "")
         case .element(let element):
-            let content: AnyView
+            let content: PreparedGlossaryBlock.Content
             switch element.tag {
             case "details":
-                let summary = element.children.first { if case .element(let child) = $0 { return child.tag == "summary" }; return false }
-                let children = element.children.filter { if case .element(let child) = $0 { return child.tag != "summary" }; return true }
-                content = AnyView(GlossaryDisclosure(title: summary?.plainText ?? "Details", initiallyOpen: element.isOpen) {
-                    GlossaryView(nodes: children, bundleURL: bundleURL)
-                })
+                let summaryIndex = element.children.firstIndex { node in
+                    if case .element(let child) = node { return child.tag == "summary" }
+                    return false
+                }
+                let summary = summaryIndex.map { element.children[$0].plainText } ?? "Details"
+                let children = element.children.enumerated().compactMap { index, node in
+                    index == summaryIndex ? nil : node
+                }
+                content = .details(title: summary, initiallyOpen: element.isOpen, blocks: blocks(children, path: path + [0]))
             case "ol", "ul":
-                content = AnyView(VStack(alignment: .leading, spacing: 5) {
-                    ForEach(Array(element.children.enumerated()), id: \.offset) { index, child in
-                        HStack(alignment: .top, spacing: 6) {
-                            Text(element.tag == "ol" ? "\(index + 1)." : "•").foregroundStyle(.secondary)
-                            GlossaryView(nodes: [child], bundleURL: bundleURL)
-                        }
-                    }
-                })
+                let items = element.children.enumerated().map { index, child in
+                    PreparedGlossaryListItem(id: id(path + [index], suffix: "item"), blocks: blocks([child], path: path + [index]))
+                }
+                content = .list(ordered: element.tag == "ol", items: items)
             case "ruby":
-                let reading = element.children.filter { if case .element(let child) = $0 { return child.tag == "rt" }; return false }.map(\.plainText).joined()
-                let base = element.children.filter { if case .element(let child) = $0 { return !["rt", "rp"].contains(child.tag) }; return true }.map(\.plainText).joined()
-                content = AnyView(VStack(spacing: 0) { Text(reading).font(.caption2); Text(base) }.accessibilityLabel("\(base), \(reading)"))
+                let reading = element.children.compactMap { node -> String? in
+                    if case .element(let child) = node, child.tag == "rt" { return node.plainText }
+                    return nil
+                }.joined()
+                let base = element.children.compactMap { node -> String? in
+                    if case .element(let child) = node, ["rt", "rp"].contains(child.tag) { return nil }
+                    return node.plainText
+                }.joined()
+                content = .ruby(base: base, reading: reading)
             case "table":
-                let rows = tableRows(element.children)
-                content = AnyView(ScrollView(.horizontal) {
-                    Grid(alignment: .leading, horizontalSpacing: 10, verticalSpacing: 5) {
-                        ForEach(Array(rows.enumerated()), id: \.offset) { _, cells in
-                            GridRow(alignment: .top) {
-                                ForEach(Array(cells.enumerated()), id: \.offset) { _, cell in
-                                    nodeView(cell).padding(3).gridCellColumns(columnSpan(cell))
-                                }
-                            }
-                        }
-                    }
-                })
+                content = .table(tableRows(element.children, path: path + [0]))
             default:
                 if let text = inlineText(node) {
-                    content = AnyView(Text(text).textSelection(.enabled))
+                    content = .inline([.init(id: id(path, suffix: "run"), content: .text(text))])
                 } else {
-                    content = AnyView(GlossaryView(nodes: element.children, bundleURL: bundleURL))
+                    content = .container(blocks(element.children, path: path + [0]))
                 }
             }
-            return AnyView(content
-                .fontWeight(element.style.bold ? .bold : .regular)
-                .italic(element.style.italic)
-                .foregroundStyle(safeColor(element.style.color) ?? .primary)
-                .background(safeColor(element.style.backgroundColor) ?? .clear)
-                .frame(maxWidth: .infinity, alignment: element.style.alignment == "center" ? .center : element.style.alignment == "right" ? .trailing : .leading)
-                .help(element.title))
+            return .init(id: id(path, suffix: element.tag), content: content, style: element.style, title: element.title)
         }
     }
 
-    private func inlineText(_ node: GlossaryNode) -> AttributedString? {
+    private static func inlineText(_ node: GlossaryNode) -> AttributedString? {
         switch node {
         case .text(let value): return AttributedString(value)
         case .lineBreak: return AttributedString("\n")
@@ -122,46 +166,205 @@ struct GlossaryView: View {
         }
     }
 
-    private func tableRows(_ nodes: [GlossaryNode]) -> [[GlossaryNode]] {
-        nodes.flatMap { node in
-            guard case .element(let element) = node else { return [[GlossaryNode]]() }
-            return element.tag == "tr" ? [element.children] : tableRows(element.children)
+    private static func tableRows(_ nodes: [GlossaryNode], path: [Int]) -> [PreparedGlossaryTableRow] {
+        nodes.enumerated().flatMap { index, node in
+            guard case .element(let element) = node else { return [PreparedGlossaryTableRow]() }
+            let rowPath = path + [index]
+            guard element.tag == "tr" else { return tableRows(element.children, path: rowPath) }
+            let cells = element.children.enumerated().map { cellIndex, cell in
+                PreparedGlossaryTableCell(
+                    id: id(rowPath + [cellIndex], suffix: "cell"),
+                    blocks: [block(cell, path: rowPath + [cellIndex])],
+                    columnSpan: columnSpan(cell)
+                )
+            }
+            return [.init(id: id(rowPath, suffix: "row"), cells: cells)]
         }
     }
 
-    private func columnSpan(_ node: GlossaryNode) -> Int {
+    private static func columnSpan(_ node: GlossaryNode) -> Int {
         if case .element(let element) = node { return element.columnSpan }
         return 1
+    }
+
+    private static func id(_ path: [Int], suffix: String) -> String {
+        path.map(String.init).joined(separator: ".") + ":" + suffix
+    }
+}
+
+struct GlossaryView: View {
+    let glossary: PreparedGlossary
+    let bundleURL: URL?
+
+    init(nodes: [GlossaryNode], bundleURL: URL?) {
+        glossary = PreparedGlossary(nodes: nodes)
+        self.bundleURL = bundleURL
+    }
+
+    init(glossary: PreparedGlossary, bundleURL: URL?) {
+        self.glossary = glossary
+        self.bundleURL = bundleURL
+    }
+
+    var body: some View {
+        GlossaryBlocksView(blocks: glossary.blocks, bundleURL: bundleURL)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .textSelection(.enabled)
+    }
+}
+
+private struct GlossaryBlocksView: View {
+    let blocks: [PreparedGlossaryBlock]
+    let bundleURL: URL?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            ForEach(blocks) { block in
+                GlossaryBlockView(block: block, bundleURL: bundleURL)
+            }
+        }
+    }
+}
+
+private struct GlossaryBlockView: View {
+    let block: PreparedGlossaryBlock
+    let bundleURL: URL?
+
+    var body: some View {
+        content
+            .glossaryStyle(block.style, title: block.title)
+    }
+
+    @ViewBuilder private var content: some View {
+        switch block.content {
+        case .inline(let runs):
+            InlineGlossaryLayout(spacing: 2) {
+                ForEach(runs) { run in
+                    GlossaryInlineRunView(run: run, bundleURL: bundleURL)
+                }
+            }
+        case .image(let reference):
+            DictionaryImageView(reference: reference, bundleURL: bundleURL)
+        case .container(let blocks):
+            GlossaryBlocksView(blocks: blocks, bundleURL: bundleURL)
+        case .details(let title, let initiallyOpen, let blocks):
+            GlossaryDisclosure(title: title, initiallyOpen: initiallyOpen) {
+                GlossaryBlocksView(blocks: blocks, bundleURL: bundleURL)
+            }
+        case .list(let ordered, let items):
+            VStack(alignment: .leading, spacing: 5) {
+                ForEach(Array(items.enumerated()), id: \.element.id) { index, item in
+                    HStack(alignment: .top, spacing: 6) {
+                        Text(ordered ? "\(index + 1)." : "•").foregroundStyle(.secondary)
+                        GlossaryBlocksView(blocks: item.blocks, bundleURL: bundleURL)
+                    }
+                }
+            }
+        case .ruby(let base, let reading):
+            VStack(spacing: 0) {
+                Text(reading).font(.caption2)
+                Text(base)
+            }
+            .accessibilityLabel("\(base), \(reading)")
+        case .table(let rows):
+            ScrollView(.horizontal) {
+                Grid(alignment: .leading, horizontalSpacing: 10, verticalSpacing: 5) {
+                    ForEach(rows) { row in
+                        GridRow(alignment: .top) {
+                            ForEach(row.cells) { cell in
+                                GlossaryBlocksView(blocks: cell.blocks, bundleURL: bundleURL)
+                                    .padding(3)
+                                    .gridCellColumns(cell.columnSpan)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+}
+
+private struct GlossaryInlineRunView: View {
+    let run: PreparedGlossaryInlineRun
+    let bundleURL: URL?
+
+    @ViewBuilder var body: some View {
+        switch run.content {
+        case .text(let text):
+            Text(text)
+        case .image(let reference):
+            DictionaryImageView(reference: reference, bundleURL: bundleURL)
+        }
     }
 }
 
 private struct InlineGlossaryLayout: Layout {
     let spacing: CGFloat
-    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
-        dimensions(proposal: proposal, subviews: subviews).size
+
+    struct Cache {
+        var width: CGFloat?
+        var subviewCount = 0
+        var measurement: Measurement?
     }
-    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
-        let measured = dimensions(proposal: .init(width: bounds.width, height: proposal.height), subviews: subviews)
-        for (subview, point) in zip(subviews, measured.points) {
-            subview.place(at: .init(x: bounds.minX + point.x, y: bounds.minY + point.y), anchor: .topLeading,
-                          proposal: .init(width: measured.sizes[point.index].width, height: measured.sizes[point.index].height))
+
+    struct Measurement {
+        let size: CGSize
+        let points: [CGPoint]
+        let sizes: [CGSize]
+    }
+
+    func makeCache(subviews: Subviews) -> Cache {
+        Cache(subviewCount: subviews.count)
+    }
+
+    func updateCache(_ cache: inout Cache, subviews: Subviews) {
+        cache = Cache(subviewCount: subviews.count)
+    }
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout Cache) -> CGSize {
+        measurement(width: resolvedWidth(proposal.width), subviews: subviews, cache: &cache).size
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout Cache) {
+        let measured = measurement(width: resolvedWidth(bounds.width), subviews: subviews, cache: &cache)
+        for index in subviews.indices {
+            subviews[index].place(
+                at: .init(x: bounds.minX + measured.points[index].x, y: bounds.minY + measured.points[index].y),
+                anchor: .topLeading,
+                proposal: .init(measured.sizes[index])
+            )
         }
     }
-    private func dimensions(proposal: ProposedViewSize, subviews: Subviews) -> (size: CGSize, points: [(x: CGFloat, y: CGFloat, index: Int)], sizes: [CGSize]) {
-        let width = max(1, proposal.width ?? 430)
-        var points: [(CGFloat, CGFloat, Int)] = [], sizes: [CGSize] = []
+
+    private func measurement(width: CGFloat, subviews: Subviews, cache: inout Cache) -> Measurement {
+        if cache.width == width, cache.subviewCount == subviews.count, let measurement = cache.measurement {
+            return measurement
+        }
+        var points: [CGPoint] = []
+        var sizes: [CGSize] = []
+        points.reserveCapacity(subviews.count)
+        sizes.reserveCapacity(subviews.count)
         var x: CGFloat = 0, y: CGFloat = 0, lineHeight: CGFloat = 0
-        for (index, subview) in subviews.enumerated() {
+        for subview in subviews {
             var available = max(1, width - x)
             let ideal = subview.sizeThatFits(.unspecified)
             if x > 0, ideal.width > available {
                 x = 0; y += lineHeight + spacing; lineHeight = 0; available = width
             }
-            let size = subview.sizeThatFits(.init(width: min(ideal.width, available), height: proposal.height))
-            points.append((x, y, index)); sizes.append(size)
+            let size = ideal.width <= available ? ideal : subview.sizeThatFits(.init(width: available, height: nil))
+            points.append(.init(x: x, y: y)); sizes.append(size)
             x += size.width + spacing; lineHeight = max(lineHeight, size.height)
         }
-        return (.init(width: width, height: y + lineHeight), points, sizes)
+        let measurement = Measurement(size: .init(width: width, height: y + lineHeight), points: points, sizes: sizes)
+        cache.width = width
+        cache.subviewCount = subviews.count
+        cache.measurement = measurement
+        return measurement
+    }
+
+    private func resolvedWidth(_ width: CGFloat?) -> CGFloat {
+        max(1, width ?? 430)
     }
 }
 
@@ -190,6 +393,26 @@ private func safeColor(_ source: String?) -> Color? {
     default:
         guard source.hasPrefix("#"), source.count == 7, let value = UInt32(source.dropFirst(), radix: 16) else { return nil }
         return Color(red: Double((value >> 16) & 255) / 255, green: Double((value >> 8) & 255) / 255, blue: Double(value & 255) / 255)
+    }
+}
+
+private extension View {
+    @ViewBuilder
+    func glossaryStyle(_ style: GlossaryStyle?, title: String) -> some View {
+        if let style {
+            self
+                .fontWeight(style.bold ? .bold : .regular)
+                .italic(style.italic)
+                .foregroundStyle(safeColor(style.color) ?? .primary)
+                .background(safeColor(style.backgroundColor) ?? .clear)
+                .frame(
+                    maxWidth: .infinity,
+                    alignment: style.alignment == "center" ? .center : style.alignment == "right" ? .trailing : .leading
+                )
+                .help(title)
+        } else {
+            self
+        }
     }
 }
 

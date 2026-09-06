@@ -110,6 +110,33 @@ struct DictionaryContentTests {
         #expect(image.size.width == 430)
         #expect(image.size.height > 80)
     }
+
+    @Test func preparedTableKeepsCellStyling() throws {
+        let nodes = try DictionaryGlossaryDecoder().decode(Data(##"{"tag":"table","content":[{"tag":"tr","content":[{"tag":"td","style":{"backgroundColor":"#123456","textAlign":"right"},"content":"鳥"}]}]}"##.utf8))
+        let table = try #require(PreparedGlossary(nodes: nodes).blocks.first)
+        guard case .table(let rows) = table.content else {
+            Issue.record("Expected prepared table")
+            return
+        }
+        let cellBlock = try #require(rows.first?.cells.first?.blocks.first)
+        #expect(cellBlock.style?.backgroundColor == "#123456")
+        #expect(cellBlock.style?.alignment == "right")
+    }
+
+    @Test @MainActor func identicalDictionaryImagesSharePresentationState() async throws {
+        let fixture = try ContentFixture()
+        defer { fixture.remove() }
+        let reference = try #require(DictionaryGlossaryDecoder()
+            .decode(Data(#"{"type":"image","path":"bird.svg"}"#.utf8))
+            .flatMap(\.images).first)
+        await DictionaryImageLoader.shared.invalidate()
+        let first = DictionaryImagePresentationStore.shared.resource(for: reference, bundleURL: fixture.bundle)
+        let second = DictionaryImagePresentationStore.shared.resource(for: reference, bundleURL: fixture.bundle)
+        #expect(first === second)
+        await DictionaryImageLoader.shared.invalidate()
+        let afterInvalidation = DictionaryImagePresentationStore.shared.resource(for: reference, bundleURL: fixture.bundle)
+        #expect(first !== afterInvalidation)
+    }
 }
 
 private struct ContentFixture {

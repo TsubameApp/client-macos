@@ -8,6 +8,7 @@ import TsubameCore
 // happens on MainActor. The wrapper transfers immutable decoded image ownership.
 struct DecodedDictionaryImage: @unchecked Sendable {
     let image: NSImage
+    let cost: Int
 }
 
 enum DictionaryImageError: Error, LocalizedError {
@@ -34,7 +35,9 @@ actor DictionaryImageLoader {
         // for the same resource share one decode, independent of glossary work.
         if resolvers[bundle] == nil { resolvers[bundle] = try DictionaryResourceResolver(bundleURL: bundle) }
         let resource = try resolvers[bundle]!.resolve(reference.path)
-        if let image = cache.object(forKey: resource.fileURL as NSURL) { return .init(image: image) }
+        if let image = cache.object(forKey: resource.fileURL as NSURL) {
+            return .init(image: image, cost: Self.cost(of: image))
+        }
         let interval = TsubameLogging.signposter.beginInterval("ImageDecode")
         defer { TsubameLogging.signposter.endInterval("ImageDecode", interval) }
         let data = try Data(contentsOf: resource.fileURL)
@@ -66,21 +69,120 @@ actor DictionaryImageLoader {
             image = NSImage(cgImage: thumbnail, size: .zero)
         }
         try Task.checkCancellation()
-        let cost = Int(min(64_000_000, image.size.width * image.size.height * 4))
+        let cost = Self.cost(of: image)
         cache.setObject(image, forKey: resource.fileURL as NSURL, cost: cost)
-        return .init(image: image)
+        return .init(image: image, cost: cost)
     }
 
-    func invalidate() { cache.removeAllObjects(); resolvers.removeAll() }
+    func invalidate() async {
+        cache.removeAllObjects()
+        resolvers.removeAll()
+        await DictionaryImagePresentationStore.shared.invalidate()
+    }
+
+    private static func cost(of image: NSImage) -> Int {
+        let pixels = image.representations.map { representation in
+            max(1, representation.pixelsWide) * max(1, representation.pixelsHigh)
+        }.max() ?? Int(max(1, image.size.width) * max(1, image.size.height))
+        return min(64_000_000, pixels * 4)
+    }
 }
 
 /// SVG is only accepted as inert local artwork, never as a document with scripts,
 /// embedded external images, stylesheet URLs or entity expansion.
+@MainActor @Observable
+final class DictionaryImageResource {
+    enum Phase {
+        case loading
+        case loaded(NSImage)
+        case failed(String)
+    }
+
+    private(set) var phase: Phase = .loading
+    private var task: Task<Void, Never>?
+    private let didLoad: (DictionaryImageResource, Int) -> Void
+
+    init(didLoad: @escaping (DictionaryImageResource, Int) -> Void) {
+        self.didLoad = didLoad
+    }
+
+    func load(_ reference: DictionaryImageReference, bundleURL: URL?) {
+        guard task == nil else { return }
+        guard let bundleURL else {
+            phase = .failed("Dictionary bundle is unavailable.")
+            return
+        }
+        task = Task { [weak self] in
+            do {
+                let result = try await DictionaryImageLoader.shared.load(reference, bundle: bundleURL)
+                try Task.checkCancellation()
+                self?.phase = .loaded(result.image)
+                if let self { didLoad(self, result.cost) }
+            } catch is CancellationError {
+                self?.task = nil
+            } catch {
+                self?.phase = .failed(error.localizedDescription)
+                TsubameLogging.popup.error("dictionary image failed path=\(reference.path.rawValue, privacy: .public) error=\(error.localizedDescription, privacy: .public)")
+            }
+        }
+    }
+
+    func cancel() {
+        task?.cancel()
+        task = nil
+    }
+}
+
+@MainActor
+final class DictionaryImagePresentationStore {
+    static let shared = DictionaryImagePresentationStore()
+    private let resources = NSCache<NSString, DictionaryImageResource>()
+    private let activeResources = NSHashTable<DictionaryImageResource>.weakObjects()
+
+    private init() {
+        resources.countLimit = 128
+        resources.totalCostLimit = 32 * 1_024 * 1_024
+    }
+
+    func resource(for reference: DictionaryImageReference, bundleURL: URL?) -> DictionaryImageResource {
+        let key = key(reference, bundleURL: bundleURL) as NSString
+        if let resource = resources.object(forKey: key) { return resource }
+        let resource = DictionaryImageResource { [weak self] resource, cost in
+            self?.resources.setObject(resource, forKey: key, cost: cost)
+        }
+        resources.setObject(resource, forKey: key, cost: 1)
+        activeResources.add(resource)
+        return resource
+    }
+
+    func preload<S: Sequence>(_ references: S, bundleURL: URL?) where S.Element == DictionaryImageReference {
+        for reference in references {
+            resource(for: reference, bundleURL: bundleURL).load(reference, bundleURL: bundleURL)
+        }
+    }
+
+    func invalidate() {
+        activeResources.allObjects.forEach { $0.cancel() }
+        resources.removeAllObjects()
+        activeResources.removeAllObjects()
+    }
+
+    private func key(_ reference: DictionaryImageReference, bundleURL: URL?) -> String {
+        "\(bundleURL?.path ?? "")\u{0}\(reference.path.rawValue)"
+    }
+}
+
+@MainActor
 struct DictionaryImageView: View {
     let reference: DictionaryImageReference
     let bundleURL: URL?
-    @State private var decoded: NSImage?
-    @State private var failure: String?
+    @State private var resource: DictionaryImageResource
+
+    init(reference: DictionaryImageReference, bundleURL: URL?) {
+        self.reference = reference
+        self.bundleURL = bundleURL
+        _resource = State(initialValue: DictionaryImagePresentationStore.shared.resource(for: reference, bundleURL: bundleURL))
+    }
 
     var body: some View {
         Group {
@@ -94,7 +196,8 @@ struct DictionaryImageView: View {
 
     private var imageContent: some View {
         Group {
-            if let decoded {
+            switch resource.phase {
+            case .loaded(let decoded):
                 Image(nsImage: decoded)
                     .renderingMode(reference.monochrome ? .template : .original)
                     .resizable()
@@ -104,29 +207,24 @@ struct DictionaryImageView: View {
                     .background(reference.background ? Color.secondary.opacity(0.07) : .clear)
                     .accessibilityLabel(label)
                     .accessibilityIdentifier("dictionary-image")
-            } else if let failure {
+            case .failed(let failure):
                 Label("Image unavailable", systemImage: "photo.badge.exclamationmark")
                     .font(.caption).foregroundStyle(.secondary).help("\(label): \(failure)")
                     .accessibilityIdentifier("dictionary-image-error")
-            } else {
+            case .loading:
                 ProgressView().controlSize(.small).accessibilityLabel("Loading \(label)")
             }
         }
         .frame(width: explicitWidth, height: explicitHeight, alignment: .leading)
-        .task(id: "\(bundleURL?.path ?? "")/\(reference.path.rawValue)") {
-            decoded = nil
-            failure = nil
-            guard let bundleURL else { failure = "Dictionary bundle is unavailable."; return }
-            do {
-                let result = try await DictionaryImageLoader.shared.load(reference, bundle: bundleURL)
-                try Task.checkCancellation()
-                decoded = result.image
-            } catch is CancellationError { }
-            catch {
-                failure = error.localizedDescription
-                TsubameLogging.popup.error("dictionary image failed path=\(reference.path.rawValue, privacy: .public) error=\(error.localizedDescription, privacy: .public)")
-            }
+        .onChange(of: resourceKey, initial: true) { _, _ in
+            let next = DictionaryImagePresentationStore.shared.resource(for: reference, bundleURL: bundleURL)
+            if resource !== next { resource = next }
+            next.load(reference, bundleURL: bundleURL)
         }
+    }
+
+    private var resourceKey: String {
+        "\(bundleURL?.path ?? "")\u{0}\(reference.path.rawValue)"
     }
 
     private var desiredWidth: CGFloat {

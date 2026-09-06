@@ -727,7 +727,7 @@ private struct PopupEntriesView: View {
     let entries: [DictionaryLookupEntry]
     let presentation: PopupPresentation
     let ankiMiningModel: AnkiMiningModel?
-    @State private var articles: [DictionaryArticle]?
+    @State private var models: [PopupEntryModel]?
 
     private struct Request: Hashable {
         let requestID: UInt64
@@ -736,37 +736,103 @@ private struct PopupEntriesView: View {
 
     var body: some View {
         LazyVStack(alignment: .leading, spacing: 12) {
-            if let articles {
-                ForEach(articles) { article in
-                    PopupEntryView(article: article, presentation: presentation, ankiMiningModel: ankiMiningModel)
-                    if article.id != articles.last?.id { Divider().opacity(0.35) }
+            if let models {
+                ForEach(models) { model in
+                    PopupEntryView(model: model, presentation: presentation, ankiMiningModel: ankiMiningModel)
+                    if model.id != models.last?.id { Divider().opacity(0.35) }
                 }
             } else {
                 ProgressView("Preparing entries…").controlSize(.small)
             }
         }
         .task(id: Request(requestID: presentation.requestID, entries: entries.map(\.id))) {
-            articles = nil
+            models = nil
+            let grouped: [DictionaryArticle]
             do {
-                let grouped = try await DictionaryContentService.shared.articles(entries)
+                let value = try await DictionaryContentService.shared.articles(entries)
                 try Task.checkCancellation()
-                articles = grouped
-            } catch is CancellationError { }
-            catch { articles = entries.map { .init(variants: [$0]) } }
+                grouped = value
+            } catch is CancellationError { return }
+            catch { grouped = entries.map { .init(variants: [$0]) } }
+            guard !Task.isCancelled else { return }
+            let prepared = grouped.map(PopupEntryModel.init)
+            models = prepared
+
+            // Let SwiftUI commit the first visible frame, then warm the next few
+            // rows so decoding and the large subtree insertion don't start as
+            // those rows cross the viewport boundary.
+            await Task.yield()
+            for model in prepared.prefix(4) {
+                guard !Task.isCancelled else { return }
+                await model.load(model.article.variants[0])
+                await Task.yield()
+            }
         }
     }
 }
 
-private struct PopupEntryView: View {
+@MainActor @Observable
+private final class PopupEntryModel: Identifiable {
     let article: DictionaryArticle
+    let displayReadings: String
+    var selectedVariant: Int64?
+    private(set) var contents: [Int64: DictionaryContent] = [:]
+    private(set) var errors: [Int64: String] = [:]
+    private var loading: Set<Int64> = []
+
+    var id: DictionaryLookupEntry.ID { article.id }
+
+    init(article: DictionaryArticle) {
+        self.article = article
+        var seen = Set<String>()
+        displayReadings = article.variants.compactMap { variant in
+            let reading = variant.entry.reading
+            return !reading.isEmpty && seen.insert(reading).inserted ? reading : nil
+        }.joined(separator: " / ")
+    }
+
+    func content(for entry: DictionaryLookupEntry) -> DictionaryContent? {
+        contents[entry.entry.id]
+    }
+
+    func error(for entry: DictionaryLookupEntry) -> String? {
+        errors[entry.entry.id]
+    }
+
+    func load(_ entry: DictionaryLookupEntry) async {
+        let id = entry.entry.id
+        guard contents[id] == nil, !loading.contains(id) else { return }
+        loading.insert(id)
+        errors[id] = nil
+        defer { loading.remove(id) }
+        do {
+            let loaded = try await DictionaryContentService.shared.load(entry)
+            try Task.checkCancellation()
+            if let loaded {
+                contents[id] = loaded
+                DictionaryImagePresentationStore.shared.preload(
+                    loaded.imageReferences.lazy.filter {
+                        $0.sizeUnits == "em" && ($0.height ?? 99) <= 3
+                    }.prefix(8),
+                    bundleURL: entry.bundleURL
+                )
+            }
+        } catch is CancellationError { }
+        catch { errors[id] = error.localizedDescription }
+    }
+}
+
+private struct PopupEntryView: View {
+    @Bindable var model: PopupEntryModel
     let presentation: PopupPresentation
     let ankiMiningModel: AnkiMiningModel?
-    @State private var content: DictionaryContent?
-    @State private var contentError: String?
-    @State private var selectedVariant: Int64?
+
+    private var article: DictionaryArticle { model.article }
     private var entry: DictionaryLookupEntry {
-        article.variants.first { $0.entry.id == selectedVariant } ?? article.variants[0]
+        article.variants.first { $0.entry.id == model.selectedVariant } ?? article.variants[0]
     }
+    private var content: DictionaryContent? { model.content(for: entry) }
+    private var contentError: String? { model.error(for: entry) }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 7) {
@@ -775,7 +841,7 @@ private struct PopupEntryView: View {
                     .font(.system(size: 17, weight: .semibold))
                 if !entry.entry.reading.isEmpty,
                    entry.entry.reading != entry.entry.expression {
-                    Text(article.variants.map(\.entry.reading).reduce(into: [String]()) { if !$0.contains($1) { $0.append($1) } }.joined(separator: " / "))
+                    Text(model.displayReadings)
                         .font(.callout)
                         .foregroundStyle(.secondary)
                 }
@@ -790,12 +856,12 @@ private struct PopupEntryView: View {
                         presentation: presentation
                     )
                     .disabled((entry.entry.definitions.contains { $0.text == nil } && content == nil)
-                              || (article.variants.count > 1 && selectedVariant == nil))
+                              || (article.variants.count > 1 && model.selectedVariant == nil))
                 }
             }
 
             if article.variants.count > 1 {
-                Picker("Reading for metadata / Anki", selection: $selectedVariant) {
+                Picker("Reading for metadata / Anki", selection: $model.selectedVariant) {
                     Text("Choose reading…").tag(Optional<Int64>.none)
                     ForEach(article.variants) { variant in
                         Text(variant.entry.reading).tag(Optional(variant.entry.id))
@@ -803,14 +869,14 @@ private struct PopupEntryView: View {
                 }.pickerStyle(.menu).controlSize(.small)
             }
             if let content {
-                if article.variants.count == 1 || selectedVariant != nil {
-                EntryMetadataView(content: content)
+                if article.variants.count == 1 || model.selectedVariant != nil {
+                    EntryMetadataView(content: content)
                 }
-                LazyVStack(alignment: .leading, spacing: 6) {
-                ForEach(content.details.definitions, id: \.position) { definition in
-                    GlossaryView(nodes: definition.nodes, bundleURL: entry.bundleURL)
-                        .font(.callout)
-                }
+                VStack(alignment: .leading, spacing: 6) {
+                    ForEach(content.preparedDefinitions) { definition in
+                        GlossaryView(glossary: definition.glossary, bundleURL: entry.bundleURL)
+                            .font(.callout)
+                    }
                 }
             } else {
                 ForEach(entry.entry.definitions, id: \.position) { definition in
@@ -829,14 +895,7 @@ private struct PopupEntryView: View {
             }
         }
         .task(id: "\(presentation.requestID):\(entry.id)") {
-            content = nil
-            contentError = nil
-            do {
-                let loaded = try await DictionaryContentService.shared.load(entry)
-                try Task.checkCancellation()
-                content = loaded
-            } catch is CancellationError { }
-            catch { contentError = error.localizedDescription }
+            await model.load(entry)
         }
     }
 

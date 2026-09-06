@@ -9,6 +9,8 @@ struct SourcedDictionaryMetadata: Sendable {
 
 struct DictionaryContent: Sendable {
     let details: DictionaryEntryDetails
+    let preparedDefinitions: [PreparedGlossaryDefinition]
+    let imageReferences: [DictionaryImageReference]
     let sources: [SourcedDictionaryMetadata]
 }
 
@@ -58,7 +60,20 @@ actor DictionaryContentService {
             sources.append(.init(title: titles[url]!, metadata: value))
         }
         try Task.checkCancellation()
-        let content = DictionaryContent(details: result, sources: sources)
+        let preparedDefinitions = result.definitions.map {
+            PreparedGlossaryDefinition(position: $0.position, glossary: PreparedGlossary(nodes: $0.nodes))
+        }
+        var imagePaths = Set<String>()
+        let imageReferences = result.definitions
+            .flatMap(\.nodes)
+            .flatMap(\.images)
+            .filter { imagePaths.insert($0.path.rawValue).inserted }
+        let content = DictionaryContent(
+            details: result,
+            preparedDefinitions: preparedDefinitions,
+            imageReferences: imageReferences,
+            sources: sources
+        )
         let bytes = try rawPayloads(entry).reduce(0) { $0 + $1.count }
         details.insert(content, for: key, cost: max(1, bytes * 4 + metadataCost(result.metadata)))
         return content
