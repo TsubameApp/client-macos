@@ -39,6 +39,9 @@ struct PopupPresentation: Sendable {
 
 @MainActor
 final class DictionaryPopupController {
+    fileprivate static let dictionarySize = CGSize(width: 520, height: 400)
+    fileprivate static let feedbackSize = CGSize(width: 410, height: 112)
+
     private let panel: DictionaryPanel
     private let hostingController: NSHostingController<DictionaryPopupView>
     private let deckModel: DictionaryScanDeckModel
@@ -49,6 +52,8 @@ final class DictionaryPopupController {
     private var ankiMiningModel: AnkiMiningModel?
     private var globalDismissMonitor: Any?
     private var localDismissMonitor: Any?
+    private var feedbackState = HotKeyFeedbackState()
+    private var feedbackDismissTask: Task<Void, Never>?
 
     init(keyboardRouter: any PopupKeyboardRouting = PopupKeyboardRouter()) {
         let deckModel = DictionaryScanDeckModel()
@@ -61,6 +66,7 @@ final class DictionaryPopupController {
         hostingController = NSHostingController(
             rootView: DictionaryPopupView(
                 presentation: nil,
+                feedback: nil,
                 ankiMiningModel: nil,
                 deckModel: deckModel,
                 liveState: liveState,
@@ -70,7 +76,7 @@ final class DictionaryPopupController {
             )
         )
         panel = DictionaryPanel(
-            contentRect: CGRect(x: 0, y: 0, width: 520, height: 400),
+            contentRect: CGRect(origin: .zero, size: Self.dictionarySize),
             styleMask: [.borderless, .nonactivatingPanel],
             backing: .buffered,
             defer: false
@@ -100,6 +106,9 @@ final class DictionaryPopupController {
             TsubameLogging.signposter.endInterval("Present", interval)
         }
 
+        feedbackDismissTask?.cancel()
+        feedbackDismissTask = nil
+        feedbackState.clear()
         ankiMiningModel?.beginRequest(presentation.requestID)
         self.presentation = presentation
         interactionState.beginPresentation()
@@ -110,6 +119,7 @@ final class DictionaryPopupController {
             requestID: presentation.requestID,
             scan: DictionaryScanPresentation(result: presentation.result)
         )
+        panel.setContentSize(Self.dictionarySize)
         updateRootView()
         let panelOrigin = origin(
             for: panel.frame.size,
@@ -135,6 +145,35 @@ final class DictionaryPopupController {
         return duration
     }
 
+    func showFeedback(
+        _ feedback: HotKeyFeedbackPresentation,
+        requestID: UInt64
+    ) {
+        feedbackDismissTask?.cancel()
+        keyboardRouter.stop()
+        interactionState.hide()
+        applyPanelCollectionBehavior()
+        presentation = nil
+        let generation = feedbackState.present(feedback, requestID: requestID)
+        panel.setContentSize(Self.feedbackSize)
+        updateRootView()
+        panel.setFrameOrigin(origin(
+            for: panel.frame.size,
+            anchorRectangle: nil,
+            coordinateSpace: .appKitBottomLeft
+        ))
+        panel.contentView?.layoutSubtreeIfNeeded()
+        panel.orderFrontRegardless()
+        panel.displayIfNeeded()
+        installDismissMonitors()
+
+        feedbackDismissTask = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(4))
+            guard !Task.isCancelled else { return }
+            self?.dismissFeedback(generation: generation)
+        }
+    }
+
     func update(timings: PipelineTimings) {
         guard let presentation else { return }
         let updated = presentation.with(timings: timings)
@@ -155,6 +194,9 @@ final class DictionaryPopupController {
     }
 
     func hide() {
+        feedbackDismissTask?.cancel()
+        feedbackDismissTask = nil
+        feedbackState.clear()
         removeDismissMonitors()
         keyboardRouter.stop()
         interactionState.hide()
@@ -191,10 +233,18 @@ final class DictionaryPopupController {
     @discardableResult
     private func handleDismissEvent(_ event: NSEvent) -> Bool {
         guard !panel.frame.contains(NSEvent.mouseLocation) else { return false }
-        if interactionState.dismissesForOutsideClick {
+        if feedbackState.item != nil || interactionState.dismissesForOutsideClick {
             hide()
         }
         return false
+    }
+
+    private func dismissFeedback(generation: UInt64) {
+        guard feedbackState.dismiss(generation: generation) else { return }
+        feedbackDismissTask = nil
+        removeDismissMonitors()
+        panel.orderOut(nil)
+        updateRootView()
     }
 
     private func installKeyboardRouter() {
@@ -273,6 +323,7 @@ final class DictionaryPopupController {
     private func updateRootView() {
         hostingController.rootView = DictionaryPopupView(
             presentation: presentation,
+            feedback: feedbackState.item?.presentation,
             ankiMiningModel: ankiMiningModel,
             deckModel: deckModel,
             liveState: liveState,
@@ -407,6 +458,7 @@ private final class DictionaryPanel: NSPanel {
 
 private struct DictionaryPopupView: View {
     let presentation: PopupPresentation?
+    let feedback: HotKeyFeedbackPresentation?
     let ankiMiningModel: AnkiMiningModel?
     let deckModel: DictionaryScanDeckModel
     let liveState: PopupLiveState
@@ -416,7 +468,13 @@ private struct DictionaryPopupView: View {
 
     var body: some View {
         Group {
-            if let presentation {
+            if let feedback {
+                HotKeyFeedbackView(presentation: feedback)
+                    .frame(
+                        width: DictionaryPopupController.feedbackSize.width,
+                        height: DictionaryPopupController.feedbackSize.height
+                    )
+            } else if let presentation {
                 let scanPresentation = DictionaryScanPresentation(
                     result: presentation.result
                 )
@@ -509,11 +567,14 @@ private struct DictionaryPopupView: View {
                         }
                     }
                 }
+                .frame(
+                    width: DictionaryPopupController.dictionarySize.width,
+                    height: DictionaryPopupController.dictionarySize.height
+                )
             } else {
                 Color.clear
             }
         }
-        .frame(width: 520, height: 400)
         .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 16))
         .overlay {
             RoundedRectangle(cornerRadius: 16)
@@ -526,6 +587,33 @@ private struct DictionaryPopupView: View {
         let wordLabel = scan.sections.count == 1 ? "word" : "words"
         let entryLabel = scan.entryCount == 1 ? "entry" : "entries"
         return "\(scan.sections.count) \(wordLabel) · \(scan.entryCount) \(entryLabel)"
+    }
+}
+
+private struct HotKeyFeedbackView: View {
+    let presentation: HotKeyFeedbackPresentation
+
+    var body: some View {
+        HStack(spacing: 14) {
+            Image(systemName: presentation.symbolName)
+                .font(.system(size: 22, weight: .semibold))
+                .foregroundStyle(.secondary)
+                .frame(width: 42, height: 42)
+                .background(.quaternary, in: RoundedRectangle(cornerRadius: 11))
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text(presentation.title)
+                    .font(.headline)
+                    .lineLimit(1)
+                Text(presentation.message)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            Spacer(minLength: 0)
+        }
+        .padding(16)
     }
 }
 

@@ -595,11 +595,17 @@ final class AppModel {
     }
 
     func triggerCapture() {
+        pipelineTask?.cancel()
         refreshPermissionStatus()
         guard permissionStatus == .granted else {
             TsubameLogging.hotkey.notice("Capture rejected: Accessibility permission denied")
             status = "Accessibility is not effective. On macOS 27, turn Tsubame off and back on in Privacy & Security → Accessibility while Tsubame is running."
-            NSApp.activate(ignoringOtherApps: true)
+            let requestID = makeRequestID()
+            currentRequestID = requestID
+            popupController.showFeedback(
+                .captureFailure(.permissionDenied),
+                requestID: requestID
+            )
             return
         }
         guard let dictionary else {
@@ -609,7 +615,6 @@ final class AppModel {
             return
         }
 
-        pipelineTask?.cancel()
         let requestID = makeRequestID()
         currentRequestID = requestID
         status = "Capturing selection…"
@@ -693,10 +698,17 @@ final class AppModel {
             )
         } catch {
             guard currentRequestID == requestID else { return }
-            popupController.hide()
             entries = []
             matchedRange = nil
             status = error.localizedDescription
+            if let captureError = error as? CaptureError {
+                popupController.showFeedback(
+                    .captureFailure(captureError),
+                    requestID: requestID
+                )
+            } else {
+                popupController.hide()
+            }
             TsubameLogging.capture.error(
                 "request=\(requestID, privacy: .public) pipeline failed type=\(String(describing: type(of: error)), privacy: .public) error=\(error.localizedDescription, privacy: .public)"
             )
