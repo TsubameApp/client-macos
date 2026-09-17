@@ -24,6 +24,7 @@ final class AppModel {
     private(set) var isLoadingLibrary = false
     private(set) var isImportingDictionary = false
     private(set) var isCancellingDictionaryImport = false
+    private(set) var updatingDictionaryID: UUID?
     private(set) var removingDictionaryID: UUID?
     private(set) var importProgressText: String?
     private(set) var importProgressDetail: String?
@@ -261,12 +262,107 @@ final class AppModel {
               !isCancellingDictionaryImport,
               let importTask else { return }
         isCancellingDictionaryImport = true
-        importProgressText = "Cancelling import…"
+        let operation = updatingDictionaryID == nil ? "import" : "update"
+        importProgressText = "Cancelling \(operation)…"
         importProgressDetail = "Finishing the current operation and cleaning up…"
         importProgressFraction = nil
-        status = "Cancelling dictionary import…"
+        status = "Cancelling dictionary \(operation)…"
         importTask.cancel()
-        TsubameLogging.dictionaryLibrary.notice("Dictionary import cancellation requested")
+        TsubameLogging.dictionaryLibrary.notice(
+            "Dictionary \(operation, privacy: .public) cancellation requested"
+        )
+    }
+
+    func replaceDictionary(id: UUID, from sourceURL: URL) {
+        guard !isDictionaryLibraryBusy,
+              let record = installedDictionaries.first(where: { $0.id == id }) else {
+            return
+        }
+
+        let sessionID = UUID()
+        importSessionID = sessionID
+        updatingDictionaryID = id
+        isImportingDictionary = true
+        isCancellingDictionaryImport = false
+        importProgressText = sourceURL.lastPathComponent
+        importProgressDetail = "Preparing replacement for revision \(record.manifest.revision)"
+        importProgressFraction = 0
+        status = "Updating \(record.manifest.title)…"
+
+        pipelineTask?.cancel()
+        manualLookupTask?.cancel()
+        currentRequestID = nil
+        popupController.hide()
+        dictionary = nil
+        entries = []
+        matchedRange = nil
+
+        importTask = Task { [weak self] in
+            guard let self else { return }
+            defer { finishDictionaryImport(sessionID: sessionID) }
+
+            await DictionaryContentService.shared.invalidate()
+            await DictionaryImageLoader.shared.invalidate()
+
+            let progress: DictionaryImportProgressHandler = { [weak self] event in
+                Task { @MainActor in
+                    guard let self,
+                          self.importSessionID == sessionID,
+                          !self.isCancellingDictionaryImport else { return }
+                    self.applyImportProgress(
+                        event,
+                        sourceName: sourceURL.lastPathComponent,
+                        sourceIndex: 1,
+                        sourceCount: 1
+                    )
+                }
+            }
+
+            do {
+                let replacement = try await replaceDictionaryFile(
+                    id: id,
+                    sourceURL: sourceURL,
+                    progress: progress
+                )
+                let records = installedDictionaries.map {
+                    $0.id == id ? replacement : $0
+                }
+                applyInstalledDictionaries(records)
+                try rebuildDictionaryCollection()
+                importProgressFraction = 1
+                importProgressText = "Update complete"
+                importProgressDetail = "Revision \(record.manifest.revision) → \(replacement.manifest.revision)"
+                status = "Updated \(record.manifest.title) from revision \(record.manifest.revision) to \(replacement.manifest.revision)."
+                TsubameLogging.dictionaryLibrary.notice(
+                    "Dictionary updated id=\(id.uuidString, privacy: .public) oldRevision=\(record.manifest.revision, privacy: .public) newRevision=\(replacement.manifest.revision, privacy: .public)"
+                )
+            } catch is CancellationError {
+                do {
+                    try rebuildDictionaryCollection()
+                    importProgressText = "Update cancelled"
+                    importProgressDetail = "Revision \(record.manifest.revision) remains installed"
+                    importProgressFraction = nil
+                    status = "Update cancelled. \(record.manifest.title) remains at revision \(record.manifest.revision)."
+                } catch {
+                    status = "Update was cancelled, but the dictionary could not be reopened: \(error.localizedDescription)"
+                }
+            } catch {
+                do {
+                    try rebuildDictionaryCollection()
+                } catch {
+                    TsubameLogging.dictionaryLibrary.error(
+                        "Dictionary reopen failed after update error=\(error.localizedDescription, privacy: .public)"
+                    )
+                }
+                importProgressText = "Update failed"
+                importProgressDetail = error.localizedDescription
+                importProgressFraction = nil
+                status = "Could not update \(record.manifest.title): \(error.localizedDescription)"
+                TsubameLogging.dictionaryLibrary.error(
+                    "Dictionary update failed id=\(id.uuidString, privacy: .public) error=\(error.localizedDescription, privacy: .public)"
+                )
+            }
+        }
     }
 
     func openDictionariesFolder() {
@@ -629,6 +725,7 @@ final class AppModel {
         importSessionID = nil
         isImportingDictionary = false
         isCancellingDictionaryImport = false
+        updatingDictionaryID = nil
     }
 
     private func refreshLibraryAfterCancelledImport(
@@ -679,6 +776,27 @@ final class AppModel {
             "Dictionary import started source=\(sourceURL.lastPathComponent, privacy: .public) scopedAccess=\(hasScopedAccess, privacy: .public)"
         )
         return try await libraryService.install(from: sourceURL, progress: progress)
+    }
+
+    private func replaceDictionaryFile(
+        id: UUID,
+        sourceURL: URL,
+        progress: @escaping DictionaryImportProgressHandler
+    ) async throws -> InstalledDictionaryRecord {
+        let hasScopedAccess = sourceURL.startAccessingSecurityScopedResource()
+        defer {
+            if hasScopedAccess {
+                sourceURL.stopAccessingSecurityScopedResource()
+            }
+        }
+        TsubameLogging.dictionaryLibrary.notice(
+            "Dictionary update started id=\(id.uuidString, privacy: .public) source=\(sourceURL.lastPathComponent, privacy: .public) scopedAccess=\(hasScopedAccess, privacy: .public)"
+        )
+        return try await libraryService.replace(
+            dictionaryID: id,
+            from: sourceURL,
+            progress: progress
+        )
     }
 
     private func importStatus(

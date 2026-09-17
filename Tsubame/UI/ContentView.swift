@@ -95,11 +95,13 @@ struct ContentView: View {
                                 isActive: model.enabledDictionaryIDs.contains(dictionary.id),
                                 canMoveUp: priorityIndex > 0,
                                 canMoveDown: priorityIndex < model.installedDictionaries.count - 1,
+                                isUpdating: model.updatingDictionaryID == dictionary.id,
                                 isRemoving: model.removingDictionaryID == dictionary.id,
                                 controlsDisabled: model.isDictionaryLibraryBusy,
                                 activate: { model.toggleDictionary(id: dictionary.id) },
                                 moveUp: { model.moveDictionary(id: dictionary.id, offset: -1) },
                                 moveDown: { model.moveDictionary(id: dictionary.id, offset: 1) },
+                                replace: { chooseReplacementSource(for: dictionary) },
                                 remove: { model.removeDictionary(id: dictionary.id) }
                             )
                             if dictionary.id != model.installedDictionaries.last?.id {
@@ -187,6 +189,29 @@ struct ContentView: View {
         guard panel.runModal() == .OK, !panel.urls.isEmpty else { return }
         model.importDictionaries(from: panel.urls)
     }
+
+    private func chooseReplacementSource(for dictionary: InstalledDictionaryRecord) {
+        let panel = NSOpenPanel()
+        panel.title = "Replace \(dictionary.manifest.title)"
+        panel.prompt = "Choose Replacement"
+        panel.message = "Choose a Yomitan ZIP archive or unpacked dictionary folder."
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = true
+        panel.allowsMultipleSelection = false
+        panel.allowedContentTypes = [.zip]
+
+        guard panel.runModal() == .OK, let sourceURL = panel.url else { return }
+
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        alert.messageText = "Replace \(dictionary.manifest.title)?"
+        alert.informativeText = "Revision \(dictionary.manifest.revision) will be replaced using \(sourceURL.lastPathComponent). Enabled state and priority will be preserved. The current dictionary remains installed if validation fails or the update is cancelled."
+        alert.addButton(withTitle: "Replace")
+        alert.addButton(withTitle: "Cancel")
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+
+        model.replaceDictionary(id: dictionary.id, from: sourceURL)
+    }
 }
 
 private struct DictionaryImportProgressView: View {
@@ -256,11 +281,13 @@ private struct DictionaryRow: View {
     let isActive: Bool
     let canMoveUp: Bool
     let canMoveDown: Bool
+    let isUpdating: Bool
     let isRemoving: Bool
     let controlsDisabled: Bool
     let activate: () -> Void
     let moveUp: () -> Void
     let moveDown: () -> Void
+    let replace: () -> Void
     let remove: () -> Void
 
     @State private var showsRemovalConfirmation = false
@@ -302,6 +329,22 @@ private struct DictionaryRow: View {
             }
             .buttonStyle(.borderless)
             .controlSize(.small)
+
+            if isUpdating {
+                ProgressView()
+                    .controlSize(.small)
+                    .frame(width: 24, height: 24)
+                    .accessibilityLabel("Updating dictionary")
+            } else {
+                Button(action: replace) {
+                    Image(systemName: "arrow.triangle.2.circlepath")
+                        .frame(width: 24, height: 24)
+                }
+                .buttonStyle(.borderless)
+                .disabled(controlsDisabled)
+                .help("Replace Dictionary")
+                .accessibilityLabel("Replace Dictionary")
+            }
 
             if isRemoving {
                 ProgressView()

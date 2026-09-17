@@ -9,6 +9,12 @@ actor DictionaryLibraryService {
         URL,
         DictionaryImportProgressHandler?
     ) throws -> InstalledDictionaryRecord
+    private let replaceBundle: @Sendable (
+        DictionaryLibraryLayout,
+        UUID,
+        URL,
+        DictionaryImportProgressHandler?
+    ) throws -> InstalledDictionaryRecord
 
     init(
         locations: TsubameStorageLocations = MacStorageLocations.platformDefault(),
@@ -30,11 +36,30 @@ actor DictionaryLibraryService {
                 bundleURL: result.bundleURL,
                 databaseURL: result.databaseURL
             )
+        },
+        replaceBundle: @escaping @Sendable (
+            DictionaryLibraryLayout,
+            UUID,
+            URL,
+            DictionaryImportProgressHandler?
+        ) throws -> InstalledDictionaryRecord = { layout, dictionaryID, sourceURL, progress in
+            let result = try YomitanDictionaryInstaller(layout: layout).replace(
+                dictionaryID: dictionaryID,
+                from: DictionaryImportSource(url: sourceURL),
+                progress: progress
+            )
+            return InstalledDictionaryRecord(
+                id: result.dictionaryID,
+                manifest: result.manifest,
+                bundleURL: result.bundleURL,
+                databaseURL: result.databaseURL
+            )
         }
     ) {
         layout = DictionaryLibraryLayout(locations: locations)
         self.discardBundle = discardBundle
         self.installBundle = installBundle
+        self.replaceBundle = replaceBundle
     }
 
     func load() throws -> [InstalledDictionaryRecord] {
@@ -46,6 +71,14 @@ actor DictionaryLibraryService {
         progress: DictionaryImportProgressHandler? = nil
     ) throws -> InstalledDictionaryRecord {
         try installBundle(layout, sourceURL, progress)
+    }
+
+    func replace(
+        dictionaryID: UUID,
+        from sourceURL: URL,
+        progress: DictionaryImportProgressHandler? = nil
+    ) throws -> InstalledDictionaryRecord {
+        try replaceBundle(layout, dictionaryID, sourceURL, progress)
     }
 
     func remove(dictionaryID: UUID) throws {

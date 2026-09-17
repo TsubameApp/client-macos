@@ -279,6 +279,58 @@ struct TsubameTests {
         #expect(model.status == "Import cancelled — 1 of 2 dictionaries imported.")
     }
 
+    @Test @MainActor
+    func replacingDictionaryPreservesIdentityEnabledStateAndPriority() async throws {
+        let fileManager = FileManager.default
+        let temporaryRoot = fileManager.temporaryDirectory
+            .appending(path: "TsubameTests-\(UUID().uuidString)", directoryHint: .isDirectory)
+        try fileManager.createDirectory(at: temporaryRoot, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: temporaryRoot) }
+        let originalSource = try makeYomitanSourceDirectory(
+            root: temporaryRoot,
+            name: "original",
+            title: "Update Test",
+            revision: "1",
+            term: "鳥"
+        )
+        let replacementSource = try makeYomitanSourceDirectory(
+            root: temporaryRoot,
+            name: "replacement",
+            title: "Update Test",
+            revision: "2",
+            term: "猫"
+        )
+        let suiteName = "TsubameTests.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let model = AppModel(
+            preferences: AppPreferences(defaults: defaults),
+            libraryService: DictionaryLibraryService(
+                locations: testStorageLocations(root: temporaryRoot)
+            )
+        )
+
+        model.importDictionaries(from: [originalSource])
+        for _ in 0..<300 where model.isImportingDictionary {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        let originalRecord = try #require(model.installedDictionaries.first)
+        let originalOrder = model.dictionaryOrderIDs
+        #expect(model.enabledDictionaryIDs.contains(originalRecord.id))
+
+        model.replaceDictionary(id: originalRecord.id, from: replacementSource)
+        for _ in 0..<300 where model.isImportingDictionary {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+
+        let replacementRecord = try #require(model.installedDictionaries.first)
+        #expect(replacementRecord.id == originalRecord.id)
+        #expect(replacementRecord.manifest.revision == "2")
+        #expect(model.dictionaryOrderIDs == originalOrder)
+        #expect(model.enabledDictionaryIDs.contains(originalRecord.id))
+        #expect(model.status == "Updated Update Test from revision 1 to 2.")
+    }
+
     @Test
     func popupPresentationKeepsDeveloperMetricsEnabledWhenTimingsArrive() {
         let presentation = PopupPresentation(
@@ -934,6 +986,24 @@ private func makeInstalledDictionaryBundle(
     ) else {
         throw CocoaError(.fileWriteUnknown)
     }
+}
+
+private func makeYomitanSourceDirectory(
+    root: URL,
+    name: String,
+    title: String,
+    revision: String,
+    term: String
+) throws -> URL {
+    let source = root.appending(path: name, directoryHint: .isDirectory)
+    try FileManager.default.createDirectory(at: source, withIntermediateDirectories: true)
+    try Data(
+        "{\"title\":\"\(title)\",\"format\":3,\"revision\":\"\(revision)\"}".utf8
+    ).write(to: source.appending(path: "index.json"))
+    try Data(
+        "[[\"\(term)\",\"\",\"\",\"\",0,[\"definition\"],1,\"\"]]".utf8
+    ).write(to: source.appending(path: "term_bank_1.json"))
+    return source
 }
 
 private extension SourceApplication {
