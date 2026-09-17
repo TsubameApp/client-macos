@@ -6,6 +6,9 @@ actor DictionaryLibraryService {
     private let cleanupLibrary: @Sendable (
         DictionaryLibraryLayout
     ) -> DictionaryLibraryCleanupReport
+    private let recoverLibrary: @Sendable (
+        DictionaryLibraryLayout
+    ) -> DictionaryReplacementRecoveryReport
     private let loadLibrary: @Sendable (
         DictionaryLibraryLayout
     ) throws -> [InstalledDictionaryRecord]
@@ -28,6 +31,12 @@ actor DictionaryLibraryService {
             DictionaryLibraryLayout
         ) -> DictionaryLibraryCleanupReport = {
             DictionaryLibraryMaintenance(layout: $0).cleanupAbandonedImports()
+        },
+        recoverLibrary: @escaping @Sendable (
+            DictionaryLibraryLayout
+        ) -> DictionaryReplacementRecoveryReport = {
+            DictionaryLibraryMaintenance(layout: $0)
+                .recoverAbandonedReplacements()
         },
         loadLibrary: @escaping @Sendable (
             DictionaryLibraryLayout
@@ -74,6 +83,7 @@ actor DictionaryLibraryService {
     ) {
         layout = DictionaryLibraryLayout(locations: locations)
         self.cleanupLibrary = cleanupLibrary
+        self.recoverLibrary = recoverLibrary
         self.loadLibrary = loadLibrary
         self.discardBundle = discardBundle
         self.installBundle = installBundle
@@ -86,9 +96,11 @@ actor DictionaryLibraryService {
 
     func prepareAndLoad() throws -> DictionaryLibraryStartupResult {
         let cleanupReport = cleanupLibrary(layout)
+        let recoveryReport = recoverLibrary(layout)
         return DictionaryLibraryStartupResult(
             dictionaries: try loadLibrary(layout),
-            cleanupReport: cleanupReport
+            cleanupReport: cleanupReport,
+            recoveryReport: recoveryReport
         )
     }
 
@@ -145,6 +157,7 @@ actor DictionaryLibraryService {
 struct DictionaryLibraryStartupResult: Sendable, Equatable {
     let dictionaries: [InstalledDictionaryRecord]
     let cleanupReport: DictionaryLibraryCleanupReport
+    let recoveryReport: DictionaryReplacementRecoveryReport
 }
 
 enum DictionaryRemovalError: LocalizedError, Equatable {

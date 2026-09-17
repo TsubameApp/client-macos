@@ -211,6 +211,10 @@ struct TsubameTests {
                 recorder.append("cleanup")
                 return expectedReport
             },
+            recoverLibrary: { _ in
+                recorder.append("recover")
+                return DictionaryReplacementRecoveryReport()
+            },
             loadLibrary: { _ in
                 recorder.append("load")
                 return []
@@ -219,13 +223,49 @@ struct TsubameTests {
 
         let result = try await service.prepareAndLoad()
 
-        #expect(recorder.values == ["cleanup", "load"])
+        #expect(recorder.values == ["cleanup", "recover", "load"])
         #expect(result.dictionaries.isEmpty)
         #expect(result.cleanupReport == expectedReport)
+        #expect(result.recoveryReport == DictionaryReplacementRecoveryReport())
+    }
+
+    @Test
+    func startupRecoveryRestoresDictionaryBeforeDiscovery() async throws {
+        let fileManager = FileManager.default
+        let temporaryRoot = fileManager.temporaryDirectory
+            .appending(path: "TsubameTests-\(UUID().uuidString)", directoryHint: .isDirectory)
+        defer { try? fileManager.removeItem(at: temporaryRoot) }
+        let locations = testStorageLocations(root: temporaryRoot)
+        let layout = DictionaryLibraryLayout(locations: locations)
+        let dictionaryID = UUID()
+        let source = try makeYomitanSourceDirectory(
+            root: temporaryRoot,
+            name: "recovery-source",
+            title: "Recovery Test",
+            revision: "1",
+            term: "鳥"
+        )
+        let installed = try YomitanDictionaryInstaller(layout: layout).install(
+            from: DictionaryImportSource(url: source),
+            dictionaryID: dictionaryID
+        )
+        let backupURL = layout.replacementBackupURL(for: UUID())
+        try fileManager.moveItem(at: installed.bundleURL, to: backupURL)
+
+        let startup = try await DictionaryLibraryService(locations: locations)
+            .prepareAndLoad()
+
+        #expect(startup.recoveryReport.restoredBackups.map(\.path) == [backupURL.path])
+        #expect(startup.dictionaries.map(\.id) == [dictionaryID])
+        #expect(startup.dictionaries.first?.manifest.title == "Recovery Test")
+        #expect(fileManager.fileExists(
+            atPath: layout.dictionaryBundleURL(for: dictionaryID).path
+        ))
+        #expect(!fileManager.fileExists(atPath: backupURL.path))
     }
 
     @Test @MainActor
-    func startupCleanupIssuesDoNotBlockDictionaryLibraryLoad() async throws {
+    func startupMaintenanceIssuesDoNotBlockDictionaryLibraryLoad() async throws {
         let suiteName = "TsubameTests.\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suiteName))
         defer { defaults.removePersistentDomain(forName: suiteName) }
@@ -235,8 +275,8 @@ struct TsubameTests {
         )
         let service = DictionaryLibraryService(
             locations: testStorageLocations(root: URL(fileURLWithPath: "/test")),
-            cleanupLibrary: { _ in
-                DictionaryLibraryCleanupReport(issues: [issue])
+            recoverLibrary: { _ in
+                DictionaryReplacementRecoveryReport(issues: [issue])
             },
             loadLibrary: { _ in [] }
         )
@@ -255,7 +295,7 @@ struct TsubameTests {
 
         #expect(!model.isLoadingLibrary)
         #expect(model.installedDictionaries.isEmpty)
-        #expect(model.status == "Import a Yomitan dictionary to begin. Some abandoned import files could not be removed.")
+        #expect(model.status == "Import a Yomitan dictionary to begin. Some interrupted dictionary operations require attention.")
     }
 
     @Test @MainActor

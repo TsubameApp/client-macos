@@ -664,7 +664,7 @@ final class AppModel {
             do {
                 let startup = try await libraryService.prepareAndLoad()
                 let loaded = startup.dictionaries
-                reportStartupCleanup(startup.cleanupReport)
+                reportStartupMaintenance(startup)
                 applyInstalledDictionaries(loaded)
                 TsubameLogging.dictionaryLibrary.notice(
                     "Dictionary library loaded count=\(loaded.count, privacy: .public)"
@@ -673,7 +673,7 @@ final class AppModel {
                     dictionary = nil
                     enabledDictionaryIDs = []
                     status = "Import a Yomitan dictionary to begin."
-                    appendStartupCleanupWarning(startup.cleanupReport)
+                    appendStartupMaintenanceWarning(startup)
                     if onboardingCompleted {
                         onMainWindowRequired?()
                     }
@@ -685,7 +685,7 @@ final class AppModel {
                     .map { $0.intersection(installedIDs) }
                     ?? installedIDs
                 try rebuildDictionaryCollection()
-                appendStartupCleanupWarning(startup.cleanupReport)
+                appendStartupMaintenanceWarning(startup)
             } catch {
                 dictionary = nil
                 enabledDictionaryIDs = []
@@ -698,27 +698,57 @@ final class AppModel {
         }
     }
 
-    private func reportStartupCleanup(_ report: DictionaryLibraryCleanupReport) {
-        if report.removedCount > 0 {
+    private func reportStartupMaintenance(_ startup: DictionaryLibraryStartupResult) {
+        let cleanup = startup.cleanupReport
+        let recovery = startup.recoveryReport
+        if cleanup.removedCount > 0 {
             TsubameLogging.dictionaryLibrary.notice(
-                "Removed abandoned dictionary imports count=\(report.removedCount, privacy: .public)"
+                "Removed abandoned dictionary imports count=\(cleanup.removedCount, privacy: .public)"
             )
         }
-        if !report.ignoredEntries.isEmpty {
+        if !cleanup.ignoredEntries.isEmpty {
             TsubameLogging.dictionaryLibrary.warning(
-                "Preserved unknown dictionary staging entries count=\(report.ignoredEntries.count, privacy: .public)"
+                "Preserved unknown dictionary staging entries count=\(cleanup.ignoredEntries.count, privacy: .public)"
             )
         }
-        for issue in report.issues {
+        for issue in cleanup.issues {
             TsubameLogging.dictionaryLibrary.error(
                 "Dictionary staging cleanup failed path=\(issue.url.path, privacy: .private) error=\(issue.message, privacy: .public)"
             )
         }
+        if !recovery.restoredBackups.isEmpty {
+            TsubameLogging.dictionaryLibrary.notice(
+                "Restored interrupted dictionary replacements count=\(recovery.restoredBackups.count, privacy: .public)"
+            )
+        }
+        if !recovery.removedStaleBackups.isEmpty {
+            TsubameLogging.dictionaryLibrary.notice(
+                "Removed stale dictionary replacement backups count=\(recovery.removedStaleBackups.count, privacy: .public)"
+            )
+        }
+        if !recovery.ignoredEntries.isEmpty {
+            TsubameLogging.dictionaryLibrary.warning(
+                "Preserved unknown dictionary replacement entries count=\(recovery.ignoredEntries.count, privacy: .public)"
+            )
+        }
+        for conflict in recovery.conflicts {
+            TsubameLogging.dictionaryLibrary.error(
+                "Dictionary replacement recovery conflict id=\(conflict.dictionaryID.uuidString, privacy: .public) backups=\(conflict.backupURLs.count, privacy: .public) reason=\(conflict.reason, privacy: .public)"
+            )
+        }
+        for issue in recovery.issues {
+            TsubameLogging.dictionaryLibrary.error(
+                "Dictionary replacement recovery failed path=\(issue.url.path, privacy: .private) error=\(issue.message, privacy: .public)"
+            )
+        }
     }
 
-    private func appendStartupCleanupWarning(_ report: DictionaryLibraryCleanupReport) {
-        guard report.hasIssues else { return }
-        status += " Some abandoned import files could not be removed."
+    private func appendStartupMaintenanceWarning(
+        _ startup: DictionaryLibraryStartupResult
+    ) {
+        guard startup.cleanupReport.hasIssues
+                || startup.recoveryReport.hasProblems else { return }
+        status += " Some interrupted dictionary operations require attention."
     }
 
     private func applyInstalledDictionaries(
