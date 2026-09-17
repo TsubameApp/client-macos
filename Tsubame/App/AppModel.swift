@@ -23,6 +23,7 @@ final class AppModel {
     private(set) var dictionaryOrderIDs: [UUID] = []
     private(set) var isLoadingLibrary = false
     private(set) var isImportingDictionary = false
+    private(set) var removingDictionaryID: UUID?
     private(set) var importProgressText: String?
     private(set) var importProgressDetail: String?
     private(set) var importProgressFraction: Double?
@@ -89,6 +90,10 @@ final class AppModel {
         dictionary != nil && !query.isEmpty
     }
 
+    var isDictionaryLibraryBusy: Bool {
+        isImportingDictionary || removingDictionaryID != nil
+    }
+
     func start() {
         guard !hasStarted else { return }
         hasStarted = true
@@ -139,7 +144,7 @@ final class AppModel {
     }
 
     func importDictionaries(from sourceURLs: [URL]) {
-        guard !isImportingDictionary, !sourceURLs.isEmpty else { return }
+        guard !isDictionaryLibraryBusy, !sourceURLs.isEmpty else { return }
         let sourceCount = sourceURLs.count
         isImportingDictionary = true
         importProgressText = sourceCount == 1
@@ -260,6 +265,7 @@ final class AppModel {
     }
 
     func toggleDictionary(id: UUID) {
+        guard !isDictionaryLibraryBusy else { return }
         guard installedDictionaries.contains(where: { $0.id == id }) else { return }
         let wasEnabled = enabledDictionaryIDs.contains(id)
         if wasEnabled {
@@ -280,6 +286,7 @@ final class AppModel {
     }
 
     func moveDictionary(id: UUID, offset: Int) {
+        guard !isDictionaryLibraryBusy else { return }
         let previousOrder = dictionaryOrderIDs
         let movedOrder = DictionaryOrder.moving(previousOrder, id: id, offset: offset)
         guard movedOrder != previousOrder else { return }
@@ -297,6 +304,59 @@ final class AppModel {
             TsubameLogging.lifecycle.error(
                 "Dictionary priority update failed id=\(id.uuidString, privacy: .public) error=\(error.localizedDescription, privacy: .public)"
             )
+        }
+    }
+
+    func removeDictionary(id: UUID) {
+        guard !isDictionaryLibraryBusy,
+              let record = installedDictionaries.first(where: { $0.id == id }) else {
+            return
+        }
+
+        removingDictionaryID = id
+        pipelineTask?.cancel()
+        manualLookupTask?.cancel()
+        currentRequestID = nil
+        popupController.hide()
+        dictionary = nil
+        entries = []
+        matchedRange = nil
+        status = "Moving \(record.manifest.title) to Trash…"
+
+        Task { [weak self] in
+            guard let self else { return }
+            defer { removingDictionaryID = nil }
+
+            await DictionaryContentService.shared.invalidate()
+            await DictionaryImageLoader.shared.invalidate()
+
+            do {
+                try await libraryService.remove(dictionaryID: id)
+                enabledDictionaryIDs.remove(id)
+                dictionaryOrderIDs.removeAll { $0 == id }
+                applyInstalledDictionaries(
+                    installedDictionaries.filter { $0.id != id }
+                )
+                try rebuildDictionaryCollection()
+                status = installedDictionaries.isEmpty
+                    ? "Moved \(record.manifest.title) to Trash. Import a dictionary to continue."
+                    : "Moved \(record.manifest.title) to Trash."
+                TsubameLogging.dictionaryLibrary.notice(
+                    "Dictionary removed id=\(id.uuidString, privacy: .public) title=\(record.manifest.title, privacy: .public)"
+                )
+            } catch {
+                do {
+                    try rebuildDictionaryCollection()
+                } catch {
+                    TsubameLogging.dictionaryLibrary.error(
+                        "Dictionary collection reopen failed after removal error=\(error.localizedDescription, privacy: .public)"
+                    )
+                }
+                status = "Could not move \(record.manifest.title) to Trash: \(error.localizedDescription)"
+                TsubameLogging.dictionaryLibrary.error(
+                    "Dictionary removal failed id=\(id.uuidString, privacy: .public) error=\(error.localizedDescription, privacy: .public)"
+                )
+            }
         }
     }
 

@@ -124,6 +124,81 @@ struct TsubameTests {
     }
 
     @Test
+    func dictionaryLibraryServiceRemovesOnlyTheRequestedBundle() async throws {
+        let fileManager = FileManager.default
+        let temporaryRoot = fileManager.temporaryDirectory
+            .appending(path: "TsubameTests-\(UUID().uuidString)", directoryHint: .isDirectory)
+        defer { try? fileManager.removeItem(at: temporaryRoot) }
+        let locations = testStorageLocations(root: temporaryRoot)
+        let layout = DictionaryLibraryLayout(locations: locations)
+        let removedID = UUID()
+        let retainedID = UUID()
+        try makeInstalledDictionaryBundle(
+            layout: layout,
+            dictionaryID: removedID,
+            title: "Removed"
+        )
+        try makeInstalledDictionaryBundle(
+            layout: layout,
+            dictionaryID: retainedID,
+            title: "Retained"
+        )
+        let service = DictionaryLibraryService(
+            locations: locations,
+            discardBundle: { try FileManager.default.removeItem(at: $0) }
+        )
+
+        try await service.remove(dictionaryID: removedID)
+        let installed = try await service.load()
+
+        #expect(!fileManager.fileExists(
+            atPath: layout.dictionaryBundleURL(for: removedID).path
+        ))
+        #expect(installed.map(\.id) == [retainedID])
+        #expect(fileManager.fileExists(
+            atPath: layout.dictionaryBundleURL(for: retainedID).path
+        ))
+    }
+
+    @Test
+    func dictionaryLibraryServiceRefusesAnInvalidManifest() async throws {
+        let fileManager = FileManager.default
+        let temporaryRoot = fileManager.temporaryDirectory
+            .appending(path: "TsubameTests-\(UUID().uuidString)", directoryHint: .isDirectory)
+        defer { try? fileManager.removeItem(at: temporaryRoot) }
+        let locations = testStorageLocations(root: temporaryRoot)
+        let layout = DictionaryLibraryLayout(locations: locations)
+        let dictionaryID = UUID()
+        try makeInstalledDictionaryBundle(
+            layout: layout,
+            dictionaryID: dictionaryID,
+            manifestDictionaryID: UUID(),
+            title: "Invalid"
+        )
+        let service = DictionaryLibraryService(
+            locations: locations,
+            discardBundle: { _ in
+                Issue.record("Invalid dictionary bundle must not be discarded")
+            }
+        )
+
+        do {
+            try await service.remove(dictionaryID: dictionaryID)
+            Issue.record("Expected invalid manifest rejection")
+        } catch let error as DictionaryRemovalError {
+            #expect(error == .invalidManifest(
+                layout.dictionaryManifestURL(for: dictionaryID)
+            ))
+        } catch {
+            Issue.record("Unexpected error: \(error)")
+        }
+
+        #expect(fileManager.fileExists(
+            atPath: layout.dictionaryBundleURL(for: dictionaryID).path
+        ))
+    }
+
+    @Test
     func popupPresentationKeepsDeveloperMetricsEnabledWhenTimingsArrive() {
         let presentation = PopupPresentation(
             requestID: 1,
@@ -733,6 +808,51 @@ private func makeScanGroup(
             ),
         ]
     )
+}
+
+private func testStorageLocations(root: URL) -> TsubameStorageLocations {
+    TsubameStorageLocations(
+        dataRoot: root.appending(path: "Data", directoryHint: .isDirectory),
+        cacheRoot: root.appending(path: "Cache", directoryHint: .isDirectory),
+        temporaryRoot: root.appending(path: "Work", directoryHint: .isDirectory)
+    )
+}
+
+private func makeInstalledDictionaryBundle(
+    layout: DictionaryLibraryLayout,
+    dictionaryID: UUID,
+    manifestDictionaryID: UUID? = nil,
+    title: String
+) throws {
+    let fileManager = FileManager.default
+    try fileManager.createDirectory(
+        at: layout.dictionaryBundleURL(for: dictionaryID),
+        withIntermediateDirectories: true
+    )
+    let manifest = DictionaryBundleManifest(
+        dictionaryID: manifestDictionaryID ?? dictionaryID,
+        title: title,
+        revision: "1",
+        dictionarySchemaVersion: 1,
+        termCount: 1,
+        termMetadataCount: 0,
+        kanjiCount: 0,
+        kanjiMetadataCount: 0,
+        tagCount: 0,
+        definitionCount: 1,
+        lookupKeyCount: 1,
+        resourceCount: 0,
+        totalResourceBytes: 0
+    )
+    try JSONEncoder().encode(manifest).write(
+        to: layout.dictionaryManifestURL(for: dictionaryID)
+    )
+    guard fileManager.createFile(
+        atPath: layout.dictionaryDatabaseURL(for: dictionaryID).path,
+        contents: Data()
+    ) else {
+        throw CocoaError(.fileWriteUnknown)
+    }
 }
 
 private extension SourceApplication {

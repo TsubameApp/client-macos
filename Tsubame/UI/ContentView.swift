@@ -60,7 +60,7 @@ struct ContentView: View {
                     }
                     Spacer()
                     Button("Import Dictionary…", action: chooseDictionarySource)
-                        .disabled(model.isImportingDictionary)
+                        .disabled(model.isDictionaryLibraryBusy)
                 }
 
                 if model.isImportingDictionary {
@@ -93,9 +93,12 @@ struct ContentView: View {
                                 isActive: model.enabledDictionaryIDs.contains(dictionary.id),
                                 canMoveUp: priorityIndex > 0,
                                 canMoveDown: priorityIndex < model.installedDictionaries.count - 1,
+                                isRemoving: model.removingDictionaryID == dictionary.id,
+                                controlsDisabled: model.isDictionaryLibraryBusy,
                                 activate: { model.toggleDictionary(id: dictionary.id) },
                                 moveUp: { model.moveDictionary(id: dictionary.id, offset: -1) },
-                                moveDown: { model.moveDictionary(id: dictionary.id, offset: 1) }
+                                moveDown: { model.moveDictionary(id: dictionary.id, offset: 1) },
+                                remove: { model.removeDictionary(id: dictionary.id) }
                             )
                             if dictionary.id != model.installedDictionaries.last?.id {
                                 Divider()
@@ -240,9 +243,14 @@ private struct DictionaryRow: View {
     let isActive: Bool
     let canMoveUp: Bool
     let canMoveDown: Bool
+    let isRemoving: Bool
+    let controlsDisabled: Bool
     let activate: () -> Void
     let moveUp: () -> Void
     let moveDown: () -> Void
+    let remove: () -> Void
+
+    @State private var showsRemovalConfirmation = false
 
     var body: some View {
         HStack(spacing: 12) {
@@ -267,7 +275,7 @@ private struct DictionaryRow: View {
                     Image(systemName: "chevron.up")
                         .frame(width: 18, height: 14)
                 }
-                .disabled(!canMoveUp)
+                .disabled(controlsDisabled || !canMoveUp)
                 .help("Increase Priority")
                 .accessibilityLabel("Increase Priority")
 
@@ -275,12 +283,31 @@ private struct DictionaryRow: View {
                     Image(systemName: "chevron.down")
                         .frame(width: 18, height: 14)
                 }
-                .disabled(!canMoveDown)
+                .disabled(controlsDisabled || !canMoveDown)
                 .help("Decrease Priority")
                 .accessibilityLabel("Decrease Priority")
             }
             .buttonStyle(.borderless)
             .controlSize(.small)
+
+            if isRemoving {
+                ProgressView()
+                    .controlSize(.small)
+                    .frame(width: 24, height: 24)
+                    .accessibilityLabel("Moving dictionary to Trash")
+            } else {
+                Button {
+                    showsRemovalConfirmation = true
+                } label: {
+                    Image(systemName: "trash")
+                        .frame(width: 24, height: 24)
+                }
+                .buttonStyle(.borderless)
+                .foregroundStyle(.red)
+                .disabled(controlsDisabled)
+                .help("Move Dictionary to Trash")
+                .accessibilityLabel("Move Dictionary to Trash")
+            }
 
             Toggle("Enabled", isOn: Binding(
                 get: { isActive },
@@ -289,9 +316,19 @@ private struct DictionaryRow: View {
             .labelsHidden()
             .toggleStyle(.switch)
             .controlSize(.small)
+            .disabled(controlsDisabled)
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 10)
+        .alert(
+            "Move \(dictionary.manifest.title) to Trash?",
+            isPresented: $showsRemovalConfirmation
+        ) {
+            Button("Move to Trash", role: .destructive, action: remove)
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("The installed dictionary bundle will be removed from Tsubame and can be recovered from the Trash.")
+        }
     }
 }
 
