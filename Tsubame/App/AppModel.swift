@@ -95,7 +95,7 @@ final class AppModel {
     }
 
     var isDictionaryLibraryBusy: Bool {
-        isImportingDictionary || removingDictionaryID != nil
+        isLoadingLibrary || isImportingDictionary || removingDictionaryID != nil
     }
 
     func start() {
@@ -652,7 +652,7 @@ final class AppModel {
         return nextRequestID
     }
 
-    private func loadInstalledDictionaries() {
+    func loadInstalledDictionaries() {
         guard !isLoadingLibrary else { return }
         isLoadingLibrary = true
         TsubameLogging.dictionaryLibrary.debug(
@@ -662,7 +662,9 @@ final class AppModel {
             guard let self else { return }
             defer { isLoadingLibrary = false }
             do {
-                let loaded = try await libraryService.load()
+                let startup = try await libraryService.prepareAndLoad()
+                let loaded = startup.dictionaries
+                reportStartupCleanup(startup.cleanupReport)
                 applyInstalledDictionaries(loaded)
                 TsubameLogging.dictionaryLibrary.notice(
                     "Dictionary library loaded count=\(loaded.count, privacy: .public)"
@@ -671,6 +673,7 @@ final class AppModel {
                     dictionary = nil
                     enabledDictionaryIDs = []
                     status = "Import a Yomitan dictionary to begin."
+                    appendStartupCleanupWarning(startup.cleanupReport)
                     if onboardingCompleted {
                         onMainWindowRequired?()
                     }
@@ -682,6 +685,7 @@ final class AppModel {
                     .map { $0.intersection(installedIDs) }
                     ?? installedIDs
                 try rebuildDictionaryCollection()
+                appendStartupCleanupWarning(startup.cleanupReport)
             } catch {
                 dictionary = nil
                 enabledDictionaryIDs = []
@@ -692,6 +696,29 @@ final class AppModel {
                 onMainWindowRequired?()
             }
         }
+    }
+
+    private func reportStartupCleanup(_ report: DictionaryLibraryCleanupReport) {
+        if report.removedCount > 0 {
+            TsubameLogging.dictionaryLibrary.notice(
+                "Removed abandoned dictionary imports count=\(report.removedCount, privacy: .public)"
+            )
+        }
+        if !report.ignoredEntries.isEmpty {
+            TsubameLogging.dictionaryLibrary.warning(
+                "Preserved unknown dictionary staging entries count=\(report.ignoredEntries.count, privacy: .public)"
+            )
+        }
+        for issue in report.issues {
+            TsubameLogging.dictionaryLibrary.error(
+                "Dictionary staging cleanup failed path=\(issue.url.path, privacy: .private) error=\(issue.message, privacy: .public)"
+            )
+        }
+    }
+
+    private func appendStartupCleanupWarning(_ report: DictionaryLibraryCleanupReport) {
+        guard report.hasIssues else { return }
+        status += " Some abandoned import files could not be removed."
     }
 
     private func applyInstalledDictionaries(

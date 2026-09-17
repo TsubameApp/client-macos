@@ -3,6 +3,12 @@ import TsubameCore
 
 actor DictionaryLibraryService {
     let layout: DictionaryLibraryLayout
+    private let cleanupLibrary: @Sendable (
+        DictionaryLibraryLayout
+    ) -> DictionaryLibraryCleanupReport
+    private let loadLibrary: @Sendable (
+        DictionaryLibraryLayout
+    ) throws -> [InstalledDictionaryRecord]
     private let discardBundle: @Sendable (URL) throws -> Void
     private let installBundle: @Sendable (
         DictionaryLibraryLayout,
@@ -18,6 +24,16 @@ actor DictionaryLibraryService {
 
     init(
         locations: TsubameStorageLocations = MacStorageLocations.platformDefault(),
+        cleanupLibrary: @escaping @Sendable (
+            DictionaryLibraryLayout
+        ) -> DictionaryLibraryCleanupReport = {
+            DictionaryLibraryMaintenance(layout: $0).cleanupAbandonedImports()
+        },
+        loadLibrary: @escaping @Sendable (
+            DictionaryLibraryLayout
+        ) throws -> [InstalledDictionaryRecord] = {
+            try MacDictionaryLibrary(layout: $0).load()
+        },
         discardBundle: @escaping @Sendable (URL) throws -> Void = {
             try FileManager.default.trashItem(at: $0, resultingItemURL: nil)
         },
@@ -57,13 +73,23 @@ actor DictionaryLibraryService {
         }
     ) {
         layout = DictionaryLibraryLayout(locations: locations)
+        self.cleanupLibrary = cleanupLibrary
+        self.loadLibrary = loadLibrary
         self.discardBundle = discardBundle
         self.installBundle = installBundle
         self.replaceBundle = replaceBundle
     }
 
     func load() throws -> [InstalledDictionaryRecord] {
-        try MacDictionaryLibrary(layout: layout).load()
+        try loadLibrary(layout)
+    }
+
+    func prepareAndLoad() throws -> DictionaryLibraryStartupResult {
+        let cleanupReport = cleanupLibrary(layout)
+        return DictionaryLibraryStartupResult(
+            dictionaries: try loadLibrary(layout),
+            cleanupReport: cleanupReport
+        )
     }
 
     func install(
@@ -114,6 +140,11 @@ actor DictionaryLibraryService {
 
         try discardBundle(bundleURL)
     }
+}
+
+struct DictionaryLibraryStartupResult: Sendable, Equatable {
+    let dictionaries: [InstalledDictionaryRecord]
+    let cleanupReport: DictionaryLibraryCleanupReport
 }
 
 enum DictionaryRemovalError: LocalizedError, Equatable {

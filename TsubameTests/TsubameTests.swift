@@ -198,6 +198,66 @@ struct TsubameTests {
         ))
     }
 
+    @Test
+    func dictionaryLibraryStartupCleansBeforeLoading() async throws {
+        let recorder = LibraryStartupRecorder()
+        let removedURL = URL(fileURLWithPath: "/test/.staging/import")
+        let expectedReport = DictionaryLibraryCleanupReport(
+            removedStagingDirectories: [removedURL]
+        )
+        let service = DictionaryLibraryService(
+            locations: testStorageLocations(root: URL(fileURLWithPath: "/test")),
+            cleanupLibrary: { _ in
+                recorder.append("cleanup")
+                return expectedReport
+            },
+            loadLibrary: { _ in
+                recorder.append("load")
+                return []
+            }
+        )
+
+        let result = try await service.prepareAndLoad()
+
+        #expect(recorder.values == ["cleanup", "load"])
+        #expect(result.dictionaries.isEmpty)
+        #expect(result.cleanupReport == expectedReport)
+    }
+
+    @Test @MainActor
+    func startupCleanupIssuesDoNotBlockDictionaryLibraryLoad() async throws {
+        let suiteName = "TsubameTests.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let issue = DictionaryLibraryCleanupIssue(
+            url: URL(fileURLWithPath: "/test/.staging/leftover"),
+            message: "Permission denied"
+        )
+        let service = DictionaryLibraryService(
+            locations: testStorageLocations(root: URL(fileURLWithPath: "/test")),
+            cleanupLibrary: { _ in
+                DictionaryLibraryCleanupReport(issues: [issue])
+            },
+            loadLibrary: { _ in [] }
+        )
+        let model = AppModel(
+            preferences: AppPreferences(defaults: defaults),
+            libraryService: service
+        )
+
+        model.loadInstalledDictionaries()
+
+        #expect(model.isLoadingLibrary)
+        #expect(model.isDictionaryLibraryBusy)
+        for _ in 0..<300 where model.isLoadingLibrary {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+
+        #expect(!model.isLoadingLibrary)
+        #expect(model.installedDictionaries.isEmpty)
+        #expect(model.status == "Import a Yomitan dictionary to begin. Some abandoned import files could not be removed.")
+    }
+
     @Test @MainActor
     func cancellingBatchImportKeepsCompletedDictionaryAndIgnoresLateProgress() async throws {
         let fileManager = FileManager.default
@@ -1012,4 +1072,19 @@ private extension SourceApplication {
         bundleIdentifier: "com.example.Source",
         localizedName: "Source"
     )
+}
+
+private final class LibraryStartupRecorder: @unchecked Sendable {
+    private let lock = NSLock()
+    private var storage: [String] = []
+
+    var values: [String] {
+        lock.withLock { storage }
+    }
+
+    func append(_ value: String) {
+        lock.withLock {
+            storage.append(value)
+        }
+    }
 }
