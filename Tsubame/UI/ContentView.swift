@@ -12,12 +12,13 @@ struct ContentView: View {
                 VStack(alignment: .leading, spacing: 5) {
                     Text(model.onboardingCompleted ? "Tsubame Settings" : "Welcome to Tsubame")
                         .font(.largeTitle.bold())
-                    Text("Import a dictionary, grant Accessibility access, then select text anywhere and press \(GlobalHotKeyMonitor.displayName).")
+                    Text("Import a dictionary, grant Accessibility access, then select text anywhere and press \(model.globalShortcut.displayName).")
                         .foregroundStyle(.secondary)
                 }
 
                 dictionarySection
                 accessibilitySection
+                globalShortcutSection
                 AnkiSettingsView(model: model.ankiSettings)
                 developerSection
 
@@ -139,6 +140,58 @@ struct ContentView: View {
                     Button("Open System Settings") {
                         model.requestAccessibilityPermission()
                     }
+                }
+            }
+            .padding(4)
+        }
+    }
+
+    private var globalShortcutSection: some View {
+        GroupBox {
+            VStack(alignment: .leading, spacing: 10) {
+                HStack(spacing: 12) {
+                    Image(systemName: model.isGlobalShortcutActive
+                        ? "keyboard.badge.ellipsis"
+                        : "exclamationmark.triangle.fill")
+                        .font(.title2)
+                        .foregroundStyle(model.isGlobalShortcutActive ? Color.accentColor : .orange)
+
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Global Shortcut")
+                            .font(.headline)
+                        Text("Runs a lookup for the selected text without changing the clipboard.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+
+                    Spacer()
+
+                    ShortcutRecorderView(
+                        shortcut: model.globalShortcut,
+                        isRecording: model.isRecordingGlobalShortcut,
+                        beginRecording: model.beginGlobalShortcutRecording,
+                        cancelRecording: model.cancelGlobalShortcutRecording,
+                        commit: model.updateGlobalShortcut
+                    )
+                    .frame(width: 160)
+
+                    Button("Reset to Default") {
+                        model.resetGlobalShortcut()
+                    }
+                    .disabled(model.globalShortcut == .defaultLookup)
+                }
+
+                if let error = model.globalShortcutError {
+                    Text(error)
+                        .font(.caption)
+                        .foregroundStyle(.red)
+                        .accessibilityLabel("Global shortcut error: \(error)")
+                } else {
+                    Text(model.isGlobalShortcutActive
+                        ? "Active"
+                        : "The shortcut is not currently active.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                 }
             }
             .padding(4)

@@ -25,11 +25,15 @@ final class StatusItemController: NSObject {
                 systemSymbolName: "character.book.closed",
                 accessibilityDescription: "Tsubame"
             )
-            button.toolTip = "Tsubame — \(GlobalHotKeyMonitor.displayName)"
+            button.toolTip = "Tsubame — \(model.globalShortcut.displayName)"
             button.target = self
             button.action = #selector(statusItemClicked(_:))
             button.sendAction(on: [.leftMouseUp, .rightMouseUp])
         }
+    }
+
+    func updateShortcut(_ shortcut: Shortcut) {
+        statusItem.button?.toolTip = "Tsubame — \(shortcut.displayName)"
     }
 
     @objc private func statusItemClicked(_ sender: NSStatusBarButton) {

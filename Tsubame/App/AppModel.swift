@@ -33,14 +33,19 @@ final class AppModel {
     private(set) var matchedRange: UTF8TextRange?
     private(set) var status = "Loading installed dictionaries…"
     private(set) var permissionStatus: AccessibilityPermissionStatus
+    private(set) var globalShortcut: Shortcut
+    private(set) var isGlobalShortcutActive = false
+    private(set) var globalShortcutError: String?
+    private(set) var isRecordingGlobalShortcut = false
 
     var onOnboardingCompleted: (() -> Void)?
     var onMainWindowRequired: (() -> Void)?
+    var onGlobalShortcutChanged: ((Shortcut) -> Void)?
 
     @ObservationIgnored private let captureProvider: any CaptureProvider
     @ObservationIgnored private let permissionClient: AccessibilityPermissionClient
     @ObservationIgnored private let popupController: DictionaryPopupController
-    @ObservationIgnored private let hotKeyMonitor: GlobalHotKeyMonitor
+    @ObservationIgnored private let hotKeyMonitor: any GlobalHotKeyMonitoring
     @ObservationIgnored private let preferences: AppPreferences
     @ObservationIgnored private let libraryService: DictionaryLibraryService
     @ObservationIgnored let ankiSettings: AnkiSettingsModel
@@ -58,7 +63,7 @@ final class AppModel {
         captureProvider: any CaptureProvider = AccessibilityCaptureProvider(),
         permissionClient: AccessibilityPermissionClient = .init(),
         popupController: DictionaryPopupController = .init(),
-        hotKeyMonitor: GlobalHotKeyMonitor = .init(),
+        hotKeyMonitor: any GlobalHotKeyMonitoring = GlobalHotKeyMonitor(),
         preferences: AppPreferences = .init(),
         libraryService: DictionaryLibraryService = .init(),
         ankiSettings: AnkiSettingsModel = .init(),
@@ -78,6 +83,7 @@ final class AppModel {
         developerModeEnabled = preferences.developerModeEnabled
         onboardingCompleted = preferences.onboardingCompleted
         permissionStatus = permissionClient.status()
+        globalShortcut = preferences.globalShortcut
         popupController.setDeveloperModeEnabled(developerModeEnabled)
         popupController.setAnkiMiningModel(ankiMining)
     }
@@ -102,8 +108,18 @@ final class AppModel {
         guard !hasStarted else { return }
         hasStarted = true
         refreshPermissionStatus()
-        hotKeyMonitor.start { [weak self] in
-            self?.triggerCapture()
+        let shortcutResult = hotKeyMonitor.start(shortcut: globalShortcut) { [weak self] in
+            guard let self, !self.isRecordingGlobalShortcut else { return }
+            self.triggerCapture()
+        }
+        switch shortcutResult {
+        case .success:
+            isGlobalShortcutActive = true
+            globalShortcutError = nil
+            preferences.globalShortcut = globalShortcut
+        case .failure(let error):
+            isGlobalShortcutActive = false
+            globalShortcutError = error.localizedDescription
         }
         loadInstalledDictionaries()
 
@@ -116,6 +132,46 @@ final class AppModel {
         TsubameLogging.lifecycle.notice(
             "Tsubame started version=\(version, privacy: .public) build=\(build, privacy: .public) debug=\(_isDebugAssertConfiguration(), privacy: .public)"
         )
+    }
+
+    func beginGlobalShortcutRecording() {
+        isRecordingGlobalShortcut = true
+        globalShortcutError = nil
+    }
+
+    func cancelGlobalShortcutRecording() {
+        isRecordingGlobalShortcut = false
+    }
+
+    @discardableResult
+    func updateGlobalShortcut(_ shortcut: Shortcut) -> Bool {
+        switch hotKeyMonitor.update(shortcut: shortcut) {
+        case .success:
+            isRecordingGlobalShortcut = false
+            globalShortcut = shortcut
+            isGlobalShortcutActive = true
+            globalShortcutError = nil
+            preferences.globalShortcut = shortcut
+            status = "Global shortcut changed to \(shortcut.displayName)."
+            onGlobalShortcutChanged?(shortcut)
+            return true
+        case .failure(let error):
+            let suffix = hotKeyMonitor.activeShortcut.map {
+                " \($0.displayName) remains active."
+            } ?? " No global shortcut is currently active."
+            globalShortcutError = error.localizedDescription + suffix
+            isGlobalShortcutActive = hotKeyMonitor.activeShortcut != nil
+            return false
+        }
+    }
+
+    func resetGlobalShortcut() {
+        _ = updateGlobalShortcut(.defaultLookup)
+    }
+
+    func stop() {
+        hotKeyMonitor.stop()
+        isGlobalShortcutActive = false
     }
 
     func finishOnboarding() {
@@ -495,7 +551,7 @@ final class AppModel {
         matchedRange = nil
         status = enabled.isEmpty
             ? "Enable at least one dictionary."
-            : "Ready: \(enabled.count) dictionar\(enabled.count == 1 ? "y" : "ies"). Select text and press \(GlobalHotKeyMonitor.displayName)."
+            : "Ready: \(enabled.count) dictionar\(enabled.count == 1 ? "y" : "ies"). Select text and press \(globalShortcut.displayName)."
         TsubameLogging.lifecycle.notice(
             "Dictionary collection opened enabled=\(enabled.count, privacy: .public) installed=\(self.installedDictionaries.count, privacy: .public)"
         )
@@ -862,10 +918,10 @@ final class AppModel {
         sourceCount: Int
     ) -> String {
         if failures.isEmpty, let onlyDictionary = installedRecords.first, sourceCount == 1 {
-            return "Imported \(onlyDictionary.manifest.title). Select text and press \(GlobalHotKeyMonitor.displayName)."
+            return "Imported \(onlyDictionary.manifest.title). Select text and press \(globalShortcut.displayName)."
         }
         if failures.isEmpty {
-            return "Imported \(installedRecords.count) dictionaries. Select text and press \(GlobalHotKeyMonitor.displayName)."
+            return "Imported \(installedRecords.count) dictionaries. Select text and press \(globalShortcut.displayName)."
         }
         if installedRecords.isEmpty, let firstFailure = failures.first {
             return sourceCount == 1

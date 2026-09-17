@@ -6,6 +6,8 @@ final class AppPreferences {
         static let developerModeEnabled = "developerModeEnabled"
         static let enabledDictionaryIDs = "enabledDictionaryIDs"
         static let dictionaryOrderIDs = "dictionaryOrderIDs"
+        static let globalShortcutKeyCode = "globalShortcutKeyCode"
+        static let globalShortcutModifiers = "globalShortcutModifiers"
     }
 
     private let defaults: UserDefaults
@@ -48,6 +50,43 @@ final class AppPreferences {
         }
         set {
             defaults.set(newValue?.map(\.uuidString), forKey: Key.dictionaryOrderIDs)
+        }
+    }
+
+    var globalShortcut: Shortcut {
+        get {
+            guard let keyCodeNumber = defaults.object(
+                forKey: Key.globalShortcutKeyCode
+            ) as? NSNumber,
+                  let modifierNumber = defaults.object(
+                    forKey: Key.globalShortcutModifiers
+                  ) as? NSNumber,
+                  keyCodeNumber.int64Value >= 0,
+                  keyCodeNumber.int64Value <= Int64(UInt16.max),
+                  modifierNumber.int64Value >= 0,
+                  modifierNumber.int64Value <= Int64(UInt8.max) else {
+                return .defaultLookup
+            }
+
+            let shortcut = Shortcut(
+                keyCode: UInt16(keyCodeNumber.intValue),
+                modifiers: ShortcutModifiers(
+                    rawValue: UInt8(modifierNumber.intValue)
+                )
+            )
+            do {
+                try shortcut.validate()
+                return shortcut
+            } catch {
+                return .defaultLookup
+            }
+        }
+        set {
+            defaults.set(Int(newValue.keyCode), forKey: Key.globalShortcutKeyCode)
+            defaults.set(
+                Int(newValue.modifiers.rawValue),
+                forKey: Key.globalShortcutModifiers
+            )
         }
     }
 }

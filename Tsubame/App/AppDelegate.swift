@@ -42,6 +42,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         model.onMainWindowRequired = { [weak mainWindowController] in
             mainWindowController?.show()
         }
+        model.onGlobalShortcutChanged = { [weak statusItemController] shortcut in
+            statusItemController?.updateShortcut(shortcut)
+        }
         model.start()
 
         if model.shouldShowMainWindowOnLaunch {
@@ -50,6 +53,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationWillTerminate(_ notification: Notification) {
+        model.stop()
         #if DEBUG
         fixtureWindow?.cleanUp()
         #endif
