@@ -68,17 +68,60 @@ struct DictionaryScanPresentation: Sendable, Equatable {
     }
 }
 
+enum PopupScrollCommand: Equatable, Sendable {
+    case lineUp
+    case lineDown
+    case pageUp
+    case pageDown
+    case top
+}
+
+struct PopupScrollRequest: Equatable, Sendable {
+    let sequence: UInt64
+    let command: PopupScrollCommand
+}
+
+@MainActor
+@Observable
+final class PopupInteractionState {
+    private(set) var isVisible = false
+    private(set) var isPinned = false
+
+    var dismissesForOutsideClick: Bool {
+        isVisible && !isPinned
+    }
+
+    func beginPresentation() {
+        if !isVisible {
+            isPinned = false
+        }
+        isVisible = true
+    }
+
+    func togglePin() {
+        guard isVisible else { return }
+        isPinned.toggle()
+    }
+
+    func hide() {
+        isVisible = false
+        isPinned = false
+    }
+}
+
 @MainActor
 @Observable
 final class DictionaryScanDeckModel {
     private(set) var requestID: UInt64?
     private(set) var selectedSectionID: UTF8TextRange?
+    private(set) var scrollRequest = PopupScrollRequest(sequence: 0, command: .top)
 
     func begin(requestID: UInt64, scan: DictionaryScanPresentation) {
         let isNewRequest = self.requestID != requestID
         self.requestID = requestID
         if isNewRequest || !scan.sections.contains(where: { $0.id == selectedSectionID }) {
             selectedSectionID = scan.sections.first?.id
+            requestScroll(.top)
         }
     }
 
@@ -87,7 +130,9 @@ final class DictionaryScanDeckModel {
         in scan: DictionaryScanPresentation
     ) {
         guard scan.sections.contains(where: { $0.id == sectionID }) else { return }
+        guard selectedSectionID != sectionID else { return }
         selectedSectionID = sectionID
+        requestScroll(.top)
     }
 
     func move(by offset: Int, in scan: DictionaryScanPresentation) {
@@ -97,12 +142,26 @@ final class DictionaryScanDeckModel {
         }
         let currentIndex = selectedIndex(in: scan) ?? 0
         let nextIndex = min(max(currentIndex + offset, 0), scan.sections.count - 1)
-        selectedSectionID = scan.sections[nextIndex].id
+        let nextID = scan.sections[nextIndex].id
+        guard nextID != selectedSectionID else { return }
+        selectedSectionID = nextID
+        requestScroll(.top)
+    }
+
+    func scroll(_ command: PopupScrollCommand) {
+        requestScroll(command)
     }
 
     func selectedIndex(in scan: DictionaryScanPresentation) -> Int? {
         guard let selectedSectionID else { return nil }
         return scan.sections.firstIndex { $0.id == selectedSectionID }
+    }
+
+    private func requestScroll(_ command: PopupScrollCommand) {
+        scrollRequest = PopupScrollRequest(
+            sequence: scrollRequest.sequence &+ 1,
+            command: command
+        )
     }
 }
 

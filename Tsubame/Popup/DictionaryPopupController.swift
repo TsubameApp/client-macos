@@ -43,22 +43,30 @@ final class DictionaryPopupController {
     private let hostingController: NSHostingController<DictionaryPopupView>
     private let deckModel: DictionaryScanDeckModel
     private let liveState: PopupLiveState
+    private let interactionState: PopupInteractionState
+    private let keyboardRouter: any PopupKeyboardRouting
     private var presentation: PopupPresentation?
     private var ankiMiningModel: AnkiMiningModel?
     private var globalDismissMonitor: Any?
     private var localDismissMonitor: Any?
 
-    init() {
+    init(keyboardRouter: any PopupKeyboardRouting = PopupKeyboardRouter()) {
         let deckModel = DictionaryScanDeckModel()
         let liveState = PopupLiveState()
+        let interactionState = PopupInteractionState()
         self.deckModel = deckModel
         self.liveState = liveState
+        self.interactionState = interactionState
+        self.keyboardRouter = keyboardRouter
         hostingController = NSHostingController(
             rootView: DictionaryPopupView(
                 presentation: nil,
                 ankiMiningModel: nil,
                 deckModel: deckModel,
-                liveState: liveState
+                liveState: liveState,
+                interactionState: interactionState,
+                togglePin: {},
+                dismiss: {}
             )
         )
         panel = DictionaryPanel(
@@ -94,6 +102,8 @@ final class DictionaryPopupController {
 
         ankiMiningModel?.beginRequest(presentation.requestID)
         self.presentation = presentation
+        interactionState.beginPresentation()
+        applyPanelCollectionBehavior()
         liveState.timings = presentation.timings
         liveState.showsPerformanceMetrics = presentation.showsPerformanceMetrics
         deckModel.begin(
@@ -114,6 +124,7 @@ final class DictionaryPopupController {
         panel.orderFrontRegardless()
         panel.displayIfNeeded()
         installDismissMonitors()
+        installKeyboardRouter()
         await Task.yield()
 
         let duration = start.duration(to: clock.now)
@@ -145,6 +156,9 @@ final class DictionaryPopupController {
 
     func hide() {
         removeDismissMonitors()
+        keyboardRouter.stop()
+        interactionState.hide()
+        applyPanelCollectionBehavior()
         panel.orderOut(nil)
     }
 
@@ -153,8 +167,7 @@ final class DictionaryPopupController {
         let eventMask: NSEvent.EventTypeMask = [
             .leftMouseDown,
             .rightMouseDown,
-            .otherMouseDown,
-            .keyDown
+            .otherMouseDown
         ]
 
         globalDismissMonitor = NSEvent.addGlobalMonitorForEvents(
@@ -177,15 +190,73 @@ final class DictionaryPopupController {
 
     @discardableResult
     private func handleDismissEvent(_ event: NSEvent) -> Bool {
-        if event.type == .keyDown {
-            guard event.keyCode == 53 else { return false }
-            hide()
-            return true
-        }
-
         guard !panel.frame.contains(NSEvent.mouseLocation) else { return false }
-        hide()
+        if interactionState.dismissesForOutsideClick {
+            hide()
+        }
         return false
+    }
+
+    private func installKeyboardRouter() {
+        let installed = keyboardRouter.start { [weak self] command, isRepeat in
+            self?.handleKeyboardCommand(command, isRepeat: isRepeat)
+        }
+        if !installed {
+            TsubameLogging.popup.error(
+                "Could not install popup keyboard event tap; mouse controls remain available"
+            )
+        }
+    }
+
+    private func handleKeyboardCommand(
+        _ command: PopupKeyboardCommand,
+        isRepeat: Bool
+    ) {
+        guard interactionState.isVisible else { return }
+        switch command {
+        case .previousWord:
+            if let presentation {
+                deckModel.move(
+                    by: -1,
+                    in: DictionaryScanPresentation(result: presentation.result)
+                )
+            }
+        case .nextWord:
+            if let presentation {
+                deckModel.move(
+                    by: 1,
+                    in: DictionaryScanPresentation(result: presentation.result)
+                )
+            }
+        case .scrollUp:
+            deckModel.scroll(.lineUp)
+        case .scrollDown:
+            deckModel.scroll(.lineDown)
+        case .pageUp:
+            deckModel.scroll(.pageUp)
+        case .pageDown:
+            deckModel.scroll(.pageDown)
+        case .togglePin:
+            guard !isRepeat else { return }
+            togglePin()
+        case .dismiss:
+            guard !isRepeat else { return }
+            hide()
+        }
+    }
+
+    private func togglePin() {
+        interactionState.togglePin()
+        applyPanelCollectionBehavior()
+        TsubameLogging.popup.notice(
+            "Popup pin changed pinned=\(self.interactionState.isPinned, privacy: .public)"
+        )
+    }
+
+    private func applyPanelCollectionBehavior() {
+        panel.collectionBehavior = interactionState.isPinned
+            ? [.canJoinAllSpaces, .fullScreenAuxiliary]
+            : [.canJoinAllSpaces, .fullScreenAuxiliary, .transient]
     }
 
     private func removeDismissMonitors() {
@@ -204,7 +275,10 @@ final class DictionaryPopupController {
             presentation: presentation,
             ankiMiningModel: ankiMiningModel,
             deckModel: deckModel,
-            liveState: liveState
+            liveState: liveState,
+            interactionState: interactionState,
+            togglePin: { [weak self] in self?.togglePin() },
+            dismiss: { [weak self] in self?.hide() }
         )
     }
 
@@ -336,6 +410,9 @@ private struct DictionaryPopupView: View {
     let ankiMiningModel: AnkiMiningModel?
     let deckModel: DictionaryScanDeckModel
     let liveState: PopupLiveState
+    let interactionState: PopupInteractionState
+    let togglePin: () -> Void
+    let dismiss: () -> Void
 
     var body: some View {
         Group {
@@ -371,6 +448,29 @@ private struct DictionaryPopupView: View {
                                 .padding(.vertical, 4)
                                 .background(.quaternary, in: Capsule())
                         }
+
+                        Button(action: togglePin) {
+                            Image(systemName: interactionState.isPinned ? "pin.fill" : "pin")
+                                .frame(width: 24, height: 24)
+                                .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.borderless)
+                        .help(interactionState.isPinned
+                            ? "Unpin Popup (⌘⇧P)"
+                            : "Pin Popup (⌘⇧P)")
+                        .accessibilityLabel(interactionState.isPinned
+                            ? "Unpin Popup"
+                            : "Pin Popup")
+                        .accessibilityValue(interactionState.isPinned ? "Pinned" : "Unpinned")
+
+                        Button(action: dismiss) {
+                            Image(systemName: "xmark")
+                                .frame(width: 24, height: 24)
+                                .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.borderless)
+                        .help("Close Popup (Esc)")
+                        .accessibilityLabel("Close Popup")
                     }
                     .padding(.horizontal, 18)
                     .padding(.vertical, 15)
@@ -483,7 +583,8 @@ private struct PopupScanDeckView: View {
                         presentation: presentation,
                         ankiMiningModel: ankiMiningModel,
                         previous: { deckModel.move(by: -1, in: scan) },
-                        next: { deckModel.move(by: 1, in: scan) }
+                        next: { deckModel.move(by: 1, in: scan) },
+                        scrollRequest: deckModel.scrollRequest
                     )
                     .id(selectedSection.id)
                     .transition(.opacity.combined(with: .scale(scale: 0.985)))
@@ -565,6 +666,7 @@ private struct PopupActiveScanCard: View {
     let ankiMiningModel: AnkiMiningModel?
     let previous: () -> Void
     let next: () -> Void
+    let scrollRequest: PopupScrollRequest
 
     private var matchedText: String {
         section.group.sourceRange.substring(in: presentation.contextText)
@@ -649,6 +751,10 @@ private struct PopupActiveScanCard: View {
                     )
                 }
                 .padding(14)
+                .background {
+                    PopupScrollCommandReceiver(request: scrollRequest)
+                        .frame(width: 0, height: 0)
+                }
             }
             .scrollIndicators(.automatic)
         }
@@ -695,6 +801,64 @@ private struct PopupActiveScanCard: View {
         .buttonStyle(.borderless)
         .disabled(disabled)
         .help(help)
+    }
+}
+
+private struct PopupScrollCommandReceiver: NSViewRepresentable {
+    let request: PopupScrollRequest
+
+    func makeNSView(context: Context) -> ReceiverView {
+        ReceiverView()
+    }
+
+    func updateNSView(_ view: ReceiverView, context: Context) {
+        view.apply(request)
+    }
+
+    @MainActor
+    final class ReceiverView: NSView {
+        private var lastSequence: UInt64?
+
+        func apply(_ request: PopupScrollRequest) {
+            guard request.sequence != lastSequence else { return }
+            lastSequence = request.sequence
+            DispatchQueue.main.async { [weak self] in
+                self?.scroll(request.command)
+            }
+        }
+
+        private func scroll(_ command: PopupScrollCommand) {
+            guard let scrollView = enclosingScrollView,
+                  let documentView = scrollView.documentView else { return }
+            let clipView = scrollView.contentView
+            let minimumY = documentView.bounds.minY
+            let maximumY = max(
+                minimumY,
+                documentView.bounds.maxY - clipView.bounds.height
+            )
+            let direction: CGFloat = documentView.isFlipped ? 1 : -1
+            let page = max(48, clipView.bounds.height * 0.85)
+            var targetY = clipView.bounds.origin.y
+
+            switch command {
+            case .lineUp:
+                targetY -= 48 * direction
+            case .lineDown:
+                targetY += 48 * direction
+            case .pageUp:
+                targetY -= page * direction
+            case .pageDown:
+                targetY += page * direction
+            case .top:
+                targetY = documentView.isFlipped ? minimumY : maximumY
+            }
+
+            targetY = min(max(targetY, minimumY), maximumY)
+            clipView.animator().setBoundsOrigin(
+                CGPoint(x: clipView.bounds.origin.x, y: targetY)
+            )
+            scrollView.reflectScrolledClipView(clipView)
+        }
     }
 }
 
