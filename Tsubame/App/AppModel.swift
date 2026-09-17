@@ -23,6 +23,7 @@ final class AppModel {
     private(set) var dictionaryOrderIDs: [UUID] = []
     private(set) var isLoadingLibrary = false
     private(set) var isImportingDictionary = false
+    private(set) var isCancellingDictionaryImport = false
     private(set) var removingDictionaryID: UUID?
     private(set) var importProgressText: String?
     private(set) var importProgressDetail: String?
@@ -46,6 +47,8 @@ final class AppModel {
     @ObservationIgnored private var dictionary: DictionaryCollection?
     @ObservationIgnored private var pipelineTask: Task<Void, Never>?
     @ObservationIgnored private var manualLookupTask: Task<Void, Never>?
+    @ObservationIgnored private var importTask: Task<Void, Never>?
+    @ObservationIgnored private var importSessionID: UUID?
     @ObservationIgnored private var nextRequestID: UInt64 = 0
     @ObservationIgnored private var currentRequestID: UInt64?
     @ObservationIgnored private var hasStarted = false
@@ -145,8 +148,12 @@ final class AppModel {
 
     func importDictionaries(from sourceURLs: [URL]) {
         guard !isDictionaryLibraryBusy, !sourceURLs.isEmpty else { return }
+        let sessionID = UUID()
         let sourceCount = sourceURLs.count
+        let initiallyInstalledIDs = Set(installedDictionaries.map(\.id))
+        importSessionID = sessionID
         isImportingDictionary = true
+        isCancellingDictionaryImport = false
         importProgressText = sourceCount == 1
             ? sourceURLs[0].lastPathComponent
             : "Preparing dictionaries…"
@@ -156,9 +163,9 @@ final class AppModel {
             ? "Importing \(sourceURLs[0].lastPathComponent)…"
             : "Importing \(sourceCount) dictionaries…"
 
-        Task { [weak self] in
+        importTask = Task { [weak self] in
             guard let self else { return }
-            defer { isImportingDictionary = false }
+            defer { finishDictionaryImport(sessionID: sessionID) }
 
             var installedRecords: [InstalledDictionaryRecord] = []
             var failures: [(source: String, error: String)] = []
@@ -178,7 +185,10 @@ final class AppModel {
 
                     let progress: DictionaryImportProgressHandler = { [weak self] event in
                         Task { @MainActor in
-                            self?.applyImportProgress(
+                            guard let self,
+                                  self.importSessionID == sessionID,
+                                  !self.isCancellingDictionaryImport else { return }
+                            self.applyImportProgress(
                                 event,
                                 sourceName: sourceName,
                                 sourceIndex: sourceIndex,
@@ -207,7 +217,9 @@ final class AppModel {
                 }
 
                 if !installedRecords.isEmpty {
+                    try Task.checkCancellation()
                     let loaded = try await libraryService.load()
+                    try Task.checkCancellation()
                     applyInstalledDictionaries(
                         loaded,
                         appending: installedRecords.map(\.id)
@@ -228,10 +240,10 @@ final class AppModel {
                     sourceCount: sourceCount
                 )
             } catch is CancellationError {
-                importProgressText = "Import cancelled."
-                importProgressDetail = nil
-                importProgressFraction = nil
-                status = "Dictionary import was cancelled."
+                await refreshLibraryAfterCancelledImport(
+                    initiallyInstalledIDs: initiallyInstalledIDs,
+                    sourceCount: sourceCount
+                )
             } catch {
                 importProgressText = nil
                 importProgressDetail = nil
@@ -242,6 +254,19 @@ final class AppModel {
                 )
             }
         }
+    }
+
+    func cancelDictionaryImport() {
+        guard isImportingDictionary,
+              !isCancellingDictionaryImport,
+              let importTask else { return }
+        isCancellingDictionaryImport = true
+        importProgressText = "Cancelling import…"
+        importProgressDetail = "Finishing the current operation and cleaning up…"
+        importProgressFraction = nil
+        status = "Cancelling dictionary import…"
+        importTask.cancel()
+        TsubameLogging.dictionaryLibrary.notice("Dictionary import cancellation requested")
     }
 
     func openDictionariesFolder() {
@@ -596,6 +621,48 @@ final class AppModel {
             recordsByID[record.id] = record
         }
         installedDictionaries = dictionaryOrderIDs.compactMap { recordsByID[$0] }
+    }
+
+    private func finishDictionaryImport(sessionID: UUID) {
+        guard importSessionID == sessionID else { return }
+        importTask = nil
+        importSessionID = nil
+        isImportingDictionary = false
+        isCancellingDictionaryImport = false
+    }
+
+    private func refreshLibraryAfterCancelledImport(
+        initiallyInstalledIDs: Set<UUID>,
+        sourceCount: Int
+    ) async {
+        do {
+            let loaded = try await libraryService.load()
+            let importedIDs = loaded.map(\.id).filter { !initiallyInstalledIDs.contains($0) }
+            applyInstalledDictionaries(loaded, appending: importedIDs)
+            enabledDictionaryIDs.formUnion(importedIDs)
+            try rebuildDictionaryCollection()
+            if !importedIDs.isEmpty {
+                finishOnboarding()
+            }
+
+            importProgressText = "Import cancelled"
+            importProgressDetail = "\(importedIDs.count) of \(sourceCount) imported"
+            importProgressFraction = nil
+            status = importedIDs.isEmpty
+                ? "Dictionary import was cancelled."
+                : "Import cancelled — \(importedIDs.count) of \(sourceCount) dictionaries imported."
+            TsubameLogging.dictionaryLibrary.notice(
+                "Dictionary import cancelled completed=\(importedIDs.count, privacy: .public) total=\(sourceCount, privacy: .public)"
+            )
+        } catch {
+            importProgressText = "Import cancelled"
+            importProgressDetail = "Could not refresh the dictionary library"
+            importProgressFraction = nil
+            status = "Import was cancelled, but the dictionary library could not be refreshed: \(error.localizedDescription)"
+            TsubameLogging.dictionaryLibrary.error(
+                "Dictionary library refresh failed after cancellation error=\(error.localizedDescription, privacy: .public)"
+            )
+        }
     }
 
     private func installDictionary(

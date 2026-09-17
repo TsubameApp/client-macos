@@ -4,15 +4,37 @@ import TsubameCore
 actor DictionaryLibraryService {
     let layout: DictionaryLibraryLayout
     private let discardBundle: @Sendable (URL) throws -> Void
+    private let installBundle: @Sendable (
+        DictionaryLibraryLayout,
+        URL,
+        DictionaryImportProgressHandler?
+    ) throws -> InstalledDictionaryRecord
 
     init(
         locations: TsubameStorageLocations = MacStorageLocations.platformDefault(),
         discardBundle: @escaping @Sendable (URL) throws -> Void = {
             try FileManager.default.trashItem(at: $0, resultingItemURL: nil)
+        },
+        installBundle: @escaping @Sendable (
+            DictionaryLibraryLayout,
+            URL,
+            DictionaryImportProgressHandler?
+        ) throws -> InstalledDictionaryRecord = { layout, sourceURL, progress in
+            let result = try YomitanDictionaryInstaller(layout: layout).install(
+                from: DictionaryImportSource(url: sourceURL),
+                progress: progress
+            )
+            return InstalledDictionaryRecord(
+                id: result.dictionaryID,
+                manifest: result.manifest,
+                bundleURL: result.bundleURL,
+                databaseURL: result.databaseURL
+            )
         }
     ) {
         layout = DictionaryLibraryLayout(locations: locations)
         self.discardBundle = discardBundle
+        self.installBundle = installBundle
     }
 
     func load() throws -> [InstalledDictionaryRecord] {
@@ -23,16 +45,7 @@ actor DictionaryLibraryService {
         from sourceURL: URL,
         progress: DictionaryImportProgressHandler? = nil
     ) throws -> InstalledDictionaryRecord {
-        let result = try YomitanDictionaryInstaller(layout: layout).install(
-            from: DictionaryImportSource(url: sourceURL),
-            progress: progress
-        )
-        return InstalledDictionaryRecord(
-            id: result.dictionaryID,
-            manifest: result.manifest,
-            bundleURL: result.bundleURL,
-            databaseURL: result.databaseURL
-        )
+        try installBundle(layout, sourceURL, progress)
     }
 
     func remove(dictionaryID: UUID) throws {

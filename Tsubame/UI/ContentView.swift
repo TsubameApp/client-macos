@@ -67,7 +67,9 @@ struct ContentView: View {
                     DictionaryImportProgressView(
                         title: model.importProgressText ?? "Importing…",
                         detail: model.importProgressDetail,
-                        fraction: model.importProgressFraction
+                        fraction: model.importProgressFraction,
+                        isCancelling: model.isCancellingDictionaryImport,
+                        cancel: model.cancelDictionaryImport
                     )
                 }
 
@@ -191,6 +193,8 @@ private struct DictionaryImportProgressView: View {
     let title: String
     let detail: String?
     let fraction: Double?
+    let isCancelling: Bool
+    let cancel: () -> Void
 
     var body: some View {
         HStack(alignment: .top, spacing: 12) {
@@ -230,10 +234,19 @@ private struct DictionaryImportProgressView: View {
                         .truncationMode(.middle)
                 }
             }
+
+            if isCancelling {
+                ProgressView()
+                    .controlSize(.small)
+                    .help("Cancelling import")
+            } else {
+                Button("Cancel", role: .cancel, action: cancel)
+                    .controlSize(.small)
+            }
         }
         .padding(12)
         .background(.quaternary.opacity(0.45), in: RoundedRectangle(cornerRadius: 10))
-        .accessibilityElement(children: .combine)
+        .accessibilityElement(children: .contain)
     }
 }
 

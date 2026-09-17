@@ -198,6 +198,87 @@ struct TsubameTests {
         ))
     }
 
+    @Test @MainActor
+    func cancellingBatchImportKeepsCompletedDictionaryAndIgnoresLateProgress() async throws {
+        let fileManager = FileManager.default
+        let temporaryRoot = fileManager.temporaryDirectory
+            .appending(path: "TsubameTests-\(UUID().uuidString)", directoryHint: .isDirectory)
+        try fileManager.createDirectory(at: temporaryRoot, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: temporaryRoot) }
+
+        let firstSource = temporaryRoot.appending(path: "first", directoryHint: .isDirectory)
+        let secondSource = temporaryRoot.appending(path: "second", directoryHint: .isDirectory)
+        try fileManager.createDirectory(at: firstSource, withIntermediateDirectories: true)
+        try fileManager.createDirectory(at: secondSource, withIntermediateDirectories: true)
+        try Data(#"{"title":"First","format":3,"revision":"1"}"#.utf8).write(
+            to: firstSource.appending(path: "index.json")
+        )
+        try Data(#"[["鳥","とり","","",0,["bird"],1,""]]"#.utf8).write(
+            to: firstSource.appending(path: "term_bank_1.json")
+        )
+
+        let locations = testStorageLocations(root: temporaryRoot)
+        let service = DictionaryLibraryService(
+            locations: locations,
+            installBundle: { layout, sourceURL, progress in
+                if sourceURL == secondSource {
+                    progress?(.phaseStarted(.sourcePreparation))
+                    do {
+                        while true {
+                            try Task.checkCancellation()
+                            Thread.sleep(forTimeInterval: 0.005)
+                        }
+                    } catch {
+                        progress?(.completed(elapsedSeconds: 999))
+                        throw error
+                    }
+                }
+
+                let result = try YomitanDictionaryInstaller(layout: layout).install(
+                    from: DictionaryImportSource(url: sourceURL),
+                    progress: progress
+                )
+                return InstalledDictionaryRecord(
+                    id: result.dictionaryID,
+                    manifest: result.manifest,
+                    bundleURL: result.bundleURL,
+                    databaseURL: result.databaseURL
+                )
+            }
+        )
+        let suiteName = "TsubameTests.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let model = AppModel(
+            preferences: AppPreferences(defaults: defaults),
+            libraryService: service
+        )
+
+        model.importDictionaries(from: [firstSource, secondSource])
+        for _ in 0..<300 where model.importProgressText != secondSource.lastPathComponent {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        #expect(model.importProgressText == secondSource.lastPathComponent)
+        #expect(model.isImportingDictionary)
+
+        model.cancelDictionaryImport()
+        model.cancelDictionaryImport()
+        #expect(model.isCancellingDictionaryImport)
+
+        for _ in 0..<300 where model.isImportingDictionary {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+
+        #expect(!model.isImportingDictionary)
+        #expect(!model.isCancellingDictionaryImport)
+        #expect(model.installedDictionaries.count == 1)
+        #expect(model.installedDictionaries.first?.manifest.title == "First")
+        #expect(model.enabledDictionaryIDs == Set(model.installedDictionaries.map(\.id)))
+        #expect(model.importProgressText == "Import cancelled")
+        #expect(model.importProgressDetail == "1 of 2 imported")
+        #expect(model.status == "Import cancelled — 1 of 2 dictionaries imported.")
+    }
+
     @Test
     func popupPresentationKeepsDeveloperMetricsEnabledWhenTimingsArrive() {
         let presentation = PopupPresentation(
