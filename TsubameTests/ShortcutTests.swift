@@ -46,6 +46,16 @@ struct ShortcutTests {
     }
 
     @Test
+    func formatsANSIKeysIndependentlyOfTheActiveKeyboardLayout() {
+        let shortcut = Shortcut(
+            keyCode: UInt16(kVK_ANSI_A),
+            modifiers: [.control, .option, .command]
+        )
+
+        #expect(shortcut.displayName == "⌃⌥⌘A")
+    }
+
+    @Test
     func preferencesPersistShortcutAndFallBackFromInvalidData() throws {
         let suiteName = "TsubameShortcutTests.\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suiteName))

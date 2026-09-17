@@ -90,42 +90,7 @@ struct Shortcut: Equatable, Sendable {
         if let special = specialKeyNames[keyCode] {
             return special
         }
-        return printableKeyName(for: keyCode) ?? "Key \(keyCode)"
-    }
-
-    private static func printableKeyName(for keyCode: UInt16) -> String? {
-        guard let inputSource = TISCopyCurrentKeyboardLayoutInputSource()?.takeRetainedValue(),
-              let rawLayout = TISGetInputSourceProperty(
-                inputSource,
-                kTISPropertyUnicodeKeyLayoutData
-              ) else {
-            return ansiKeyNames[keyCode]
-        }
-
-        let layoutData = unsafeBitCast(rawLayout, to: CFData.self)
-        guard let bytes = CFDataGetBytePtr(layoutData) else {
-            return ansiKeyNames[keyCode]
-        }
-
-        var deadKeyState: UInt32 = 0
-        var actualLength = 0
-        var characters = [UniChar](repeating: 0, count: 4)
-        let status = UCKeyTranslate(
-            bytes.withMemoryRebound(to: UCKeyboardLayout.self, capacity: 1) { $0 },
-            keyCode,
-            UInt16(kUCKeyActionDisplay),
-            0,
-            UInt32(LMGetKbdType()),
-            OptionBits(kUCKeyTranslateNoDeadKeysBit),
-            &deadKeyState,
-            characters.count,
-            &actualLength,
-            &characters
-        )
-        guard status == noErr, actualLength > 0 else {
-            return ansiKeyNames[keyCode]
-        }
-        return String(utf16CodeUnits: characters, count: actualLength).uppercased()
+        return ansiKeyNames[keyCode] ?? "Key \(keyCode)"
     }
 
     private static let specialKeyNames: [UInt16: String] = [
@@ -184,6 +149,12 @@ struct Shortcut: Equatable, Sendable {
         UInt16(kVK_ANSI_4): "4", UInt16(kVK_ANSI_5): "5",
         UInt16(kVK_ANSI_6): "6", UInt16(kVK_ANSI_7): "7",
         UInt16(kVK_ANSI_8): "8", UInt16(kVK_ANSI_9): "9",
+        UInt16(kVK_ANSI_Equal): "=", UInt16(kVK_ANSI_Minus): "−",
+        UInt16(kVK_ANSI_LeftBracket): "[", UInt16(kVK_ANSI_RightBracket): "]",
+        UInt16(kVK_ANSI_Quote): "'", UInt16(kVK_ANSI_Semicolon): ";",
+        UInt16(kVK_ANSI_Backslash): "\\", UInt16(kVK_ANSI_Comma): ",",
+        UInt16(kVK_ANSI_Slash): "/", UInt16(kVK_ANSI_Period): ".",
+        UInt16(kVK_ANSI_Grave): "`",
     ]
 }
 
