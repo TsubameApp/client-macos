@@ -21,10 +21,11 @@ final class StatusItemController: NSObject {
         super.init()
 
         if let button = statusItem.button {
-            button.image = NSImage(
-                systemSymbolName: "character.book.closed",
-                accessibilityDescription: "Tsubame"
-            )
+            let image = NSImage(named: "MenuBarIcon")
+            image?.isTemplate = true
+            image?.size = NSSize(width: 18, height: 18)
+            image?.accessibilityDescription = "Tsubame"
+            button.image = image
             button.toolTip = "Tsubame — \(model.globalShortcut.displayName)"
             button.target = self
             button.action = #selector(statusItemClicked(_:))
