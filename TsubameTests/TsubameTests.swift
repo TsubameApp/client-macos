@@ -5,6 +5,35 @@ import TsubameCore
 
 struct TsubameTests {
     @Test
+    func appBuildInfoUsesEmbeddedGitMetadata() {
+        let buildInfo = AppBuildInfo(infoDictionary: [
+            "CFBundleShortVersionString": "1.0.2",
+            "CFBundleVersion": "42",
+            "TsubameDisplayVersion": "1.0.2-3-gfe25c48-dirty",
+            "TsubameGitCommit": "fe25c48",
+            "TsubameGitDirty": true,
+        ])
+
+        #expect(buildInfo.marketingVersion == "1.0.2")
+        #expect(buildInfo.buildNumber == "42")
+        #expect(buildInfo.displayVersion == "1.0.2-3-gfe25c48-dirty")
+        #expect(buildInfo.commit == "fe25c48")
+        #expect(buildInfo.isDirty)
+    }
+
+    @Test
+    func appBuildInfoFallsBackToBundleVersion() {
+        let buildInfo = AppBuildInfo(infoDictionary: [
+            "CFBundleShortVersionString": "1.2.3",
+            "CFBundleVersion": "7",
+        ])
+
+        #expect(buildInfo.displayVersion == "1.2.3")
+        #expect(buildInfo.commit == nil)
+        #expect(!buildInfo.isDirty)
+    }
+
+    @Test
     func macStorageLocationsUseClientOwnedRoots() {
         let applicationSupport = URL(fileURLWithPath: "/test/Application Support")
         let caches = URL(fileURLWithPath: "/test/Caches")

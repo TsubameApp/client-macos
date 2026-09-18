@@ -8,6 +8,7 @@
 
 /* Begin PBXBuildFile section */
 		284C7964303C8E4100483B57 /* TsubameCore in Frameworks */ = {isa = PBXBuildFile; productRef = 284C7963303C8E4100483B57 /* TsubameCore */; };
+		7A0000010000000000000001 /* LICENSE in Resources */ = {isa = PBXBuildFile; fileRef = 7A0000020000000000000002 /* LICENSE */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -28,6 +29,7 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
+		7A0000020000000000000002 /* LICENSE */ = {isa = PBXFileReference; lastKnownFileType = text; path = LICENSE; sourceTree = "<group>"; };
 		285A09E3303C8C8000D0BAEA /* Tsubame.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Tsubame.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		285A09F2303C8C8300D0BAEA /* TsubameTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = TsubameTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		285A09FC303C8C8300D0BAEA /* TsubameUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = TsubameUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -77,6 +79,7 @@
 				285A09E5303C8C8000D0BAEA /* Tsubame */,
 				285A09F5303C8C8300D0BAEA /* TsubameTests */,
 				285A09FF303C8C8300D0BAEA /* TsubameUITests */,
+				7A0000020000000000000002 /* LICENSE */,
 				285A09E4303C8C8000D0BAEA /* Products */,
 			);
 			sourceTree = "<group>";
@@ -101,6 +104,7 @@
 				285A09DF303C8C8000D0BAEA /* Sources */,
 				285A09E0303C8C8000D0BAEA /* Frameworks */,
 				285A09E1303C8C8000D0BAEA /* Resources */,
+				7A0000030000000000000003 /* Embed Build Metadata */,
 			);
 			buildRules = (
 			);
@@ -208,6 +212,7 @@
 		285A09E1303C8C8000D0BAEA /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			files = (
+				7A0000010000000000000001 /* LICENSE in Resources */,
 			);
 		};
 		285A09F0303C8C8300D0BAEA /* Resources */ = {
@@ -221,6 +226,31 @@
 			);
 		};
 /* End PBXResourcesBuildPhase section */
+
+/* Begin PBXShellScriptBuildPhase section */
+		7A0000030000000000000003 /* Embed Build Metadata */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+				"$(SRCROOT)/Scripts/embed-build-metadata.sh",
+				"$(SRCROOT)/Scripts/git-version.sh",
+				"$(TARGET_BUILD_DIR)/$(INFOPLIST_PATH)",
+			);
+			name = "Embed Build Metadata";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "\"${SRCROOT}/Scripts/embed-build-metadata.sh\"\n";
+		};
+/* End PBXShellScriptBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
 		285A09DF303C8C8000D0BAEA /* Sources */ = {
@@ -387,6 +417,7 @@
 				ENABLE_APP_SANDBOX = NO;
 				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_PREVIEWS = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				ENABLE_USER_SELECTED_FILES = readonly;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_CFBundleDisplayName = Tsubame;
@@ -422,6 +453,7 @@
 				ENABLE_APP_SANDBOX = NO;
 				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_PREVIEWS = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				ENABLE_USER_SELECTED_FILES = readonly;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_CFBundleDisplayName = Tsubame;

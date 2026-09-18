@@ -123,14 +123,9 @@ final class AppModel {
         }
         loadInstalledDictionaries()
 
-        let version = Bundle.main.object(
-            forInfoDictionaryKey: "CFBundleShortVersionString"
-        ) as? String ?? "unknown"
-        let build = Bundle.main.object(
-            forInfoDictionaryKey: "CFBundleVersion"
-        ) as? String ?? "unknown"
+        let buildInfo = AppBuildInfo.current
         TsubameLogging.lifecycle.notice(
-            "Tsubame started version=\(version, privacy: .public) build=\(build, privacy: .public) debug=\(_isDebugAssertConfiguration(), privacy: .public)"
+            "Tsubame started version=\(buildInfo.displayVersion, privacy: .public) build=\(buildInfo.buildNumber, privacy: .public) debug=\(_isDebugAssertConfiguration(), privacy: .public)"
         )
     }
 

@@ -5,6 +5,7 @@ import UniformTypeIdentifiers
 
 struct ContentView: View {
     @Bindable var model: AppModel
+    @State private var isShowingLicense = false
 
     var body: some View {
         ScrollView {
@@ -20,7 +21,7 @@ struct ContentView: View {
                 accessibilitySection
                 globalShortcutSection
                 AnkiSettingsView(model: model.ankiSettings)
-                developerSection
+                advancedSection
 
                 HStack(alignment: .firstTextBaseline) {
                     Text(model.status)
@@ -35,6 +36,9 @@ struct ContentView: View {
                         .buttonStyle(.borderedProminent)
                     }
                 }
+
+                Divider()
+                aboutFooter
             }
             .padding(24)
         }
@@ -45,6 +49,9 @@ struct ContentView: View {
             )
         ) { _ in
             model.refreshPermissionStatus()
+        }
+        .sheet(isPresented: $isShowingLicense) {
+            LicenseView()
         }
     }
 
@@ -198,13 +205,16 @@ struct ContentView: View {
         }
     }
 
-    private var developerSection: some View {
+    private var advancedSection: some View {
         GroupBox {
-            VStack(spacing: 12) {
+            VStack(alignment: .leading, spacing: 12) {
+                Text("Advanced")
+                    .font(.headline)
+
                 HStack {
                     VStack(alignment: .leading, spacing: 2) {
-                        Text("Developer mode")
-                            .font(.headline)
+                        Text("Performance metrics")
+                            .font(.body.weight(.medium))
                         Text("Show capture, lookup, presentation, and total latency in the popup.")
                             .font(.caption)
                             .foregroundStyle(.secondary)
@@ -214,20 +224,33 @@ struct ContentView: View {
                         .labelsHidden()
                 }
 
-                if model.developerModeEnabled {
-                    Divider()
-                    HStack {
-                        Button {
-                            model.openDictionariesFolder()
-                        } label: {
-                            Label("Open Dictionaries Folder", systemImage: "folder")
-                        }
-                        Spacer()
+                Divider()
+                HStack {
+                    Button {
+                        model.openDictionariesFolder()
+                    } label: {
+                        Label("Open Dictionaries Folder", systemImage: "folder")
                     }
+                    Spacer()
                 }
             }
             .padding(4)
         }
+    }
+
+    private var aboutFooter: some View {
+        HStack(spacing: 6) {
+            Text("Tsubame \(AppBuildInfo.current.displayVersion) (\(AppBuildInfo.configurationName))")
+                .textSelection(.enabled)
+            Text("·")
+            Button("GPL-3.0-only") {
+                isShowingLicense = true
+            }
+            .buttonStyle(.link)
+            Spacer()
+        }
+        .font(.caption)
+        .foregroundStyle(.secondary)
     }
 
     private func chooseDictionarySource() {
@@ -264,6 +287,41 @@ struct ContentView: View {
         guard alert.runModal() == .alertFirstButtonReturn else { return }
 
         model.replaceDictionary(id: dictionary.id, from: sourceURL)
+    }
+}
+
+private struct LicenseView: View {
+    @Environment(\.dismiss) private var dismiss
+
+    private var licenseText: String {
+        guard let url = Bundle.main.url(forResource: "LICENSE", withExtension: nil),
+              let text = try? String(contentsOf: url, encoding: .utf8) else {
+            return "GNU General Public License, version 3 only."
+        }
+        return text
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Text("Tsubame License")
+                    .font(.title2.bold())
+                Spacer()
+                Button("Done") {
+                    dismiss()
+                }
+                .keyboardShortcut(.defaultAction)
+            }
+
+            ScrollView {
+                Text(licenseText)
+                    .font(.system(.caption, design: .monospaced))
+                    .textSelection(.enabled)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+        }
+        .padding(20)
+        .frame(width: 640, height: 520)
     }
 }
 
