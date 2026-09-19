@@ -1,0 +1,31 @@
+name: macOS CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-test:
+    runs-on: xcode-27
+    steps:
+      - name: Check out macOS client
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Build and run unit tests
+        run: |
+          set -euo pipefail
+          xcodebuild test \
+            -project Tsubame.xcodeproj \
+            -scheme Tsubame \
+            -configuration Debug \
+            -destination 'platform=macOS,arch=arm64' \
+            -only-testing:TsubameTests \
+            -onlyUsePackageVersionsFromResolvedFile \
+            -skipPackageUpdates \
+            CODE_SIGNING_ALLOWED=NO

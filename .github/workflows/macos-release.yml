@@ -1,0 +1,182 @@
+name: macOS Release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: xcode-27
+    steps:
+      - name: Check out release commit
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Validate release tag
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          [[ "${RELEASE_TAG}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]
+
+      - name: Build and run unit tests
+        run: |
+          set -euo pipefail
+          xcodebuild test \
+            -project Tsubame.xcodeproj \
+            -scheme Tsubame \
+            -configuration Debug \
+            -destination 'platform=macOS,arch=arm64' \
+            -only-testing:TsubameTests \
+            -onlyUsePackageVersionsFromResolvedFile \
+            -skipPackageUpdates \
+            CODE_SIGNING_ALLOWED=NO
+
+  build:
+    needs: test
+    strategy:
+      fail-fast: false
+      matrix:
+        architecture: [arm64, x86_64]
+    runs-on: xcode-27
+    steps:
+      - name: Check out release commit
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Build thin Release app
+        env:
+          ARCHITECTURE: ${{ matrix.architecture }}
+        run: |
+          set -euo pipefail
+          xcodebuild build \
+            -project Tsubame.xcodeproj \
+            -scheme 'Tsubame release' \
+            -configuration Release \
+            -destination 'generic/platform=macOS' \
+            -derivedDataPath "${RUNNER_TEMP}/Tsubame-${ARCHITECTURE}" \
+            -onlyUsePackageVersionsFromResolvedFile \
+            -skipPackageUpdates \
+            ARCHS="${ARCHITECTURE}" \
+            ONLY_ACTIVE_ARCH=NO \
+            CODE_SIGN_STYLE=Manual \
+            CODE_SIGN_IDENTITY=- \
+            DEVELOPMENT_TEAM=
+
+      - name: Verify architecture and release metadata
+        env:
+          ARCHITECTURE: ${{ matrix.architecture }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          app="${RUNNER_TEMP}/Tsubame-${ARCHITECTURE}/Build/Products/Release/Tsubame.app"
+          test -d "${app}"
+
+          executable="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "${app}/Contents/Info.plist")"
+          test "$(lipo -archs "${app}/Contents/MacOS/${executable}")" = "${ARCHITECTURE}"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "${app}/Contents/Info.plist")" = "${RELEASE_TAG#v}"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :TsubameGitCommit' "${app}/Contents/Info.plist")" = "${GITHUB_SHA:0:7}"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :TsubameGitDirty' "${app}/Contents/Info.plist")" = false
+
+          count=0
+          while IFS= read -r -d '' binary; do
+            if file -b "${binary}" | grep -q 'Mach-O'; then
+              actual="$(lipo -archs "${binary}")"
+              if [[ "${actual}" != "${ARCHITECTURE}" ]]; then
+                echo "Unexpected architecture in ${binary}: ${actual}" >&2
+                exit 1
+              fi
+              count=$((count + 1))
+            fi
+          done < <(find "${app}" -type f -print0)
+          test "${count}" -gt 0
+          codesign --verify --deep --strict "${app}"
+          echo "Verified ${count} thin Mach-O files for ${ARCHITECTURE}."
+
+      - name: Package ZIP
+        env:
+          ARCHITECTURE: ${{ matrix.architecture }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          ditto -c -k --sequesterRsrc --keepParent \
+            "${RUNNER_TEMP}/Tsubame-${ARCHITECTURE}/Build/Products/Release/Tsubame.app" \
+            "dist/Tsubame-${RELEASE_TAG}-macOS-${ARCHITECTURE}.zip"
+
+      - name: Upload ZIP
+        uses: actions/upload-artifact@v4
+        with:
+          name: Tsubame-${{ matrix.architecture }}
+          path: dist/*.zip
+          if-no-files-found: error
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Check out release history
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Download both ZIPs
+        uses: actions/download-artifact@v4
+        with:
+          pattern: Tsubame-*
+          path: dist
+          merge-multiple: true
+
+      - name: Create checksums and release notes
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          cd dist
+          test -f "Tsubame-${RELEASE_TAG}-macOS-arm64.zip"
+          test -f "Tsubame-${RELEASE_TAG}-macOS-x86_64.zip"
+          sha256sum \
+            "Tsubame-${RELEASE_TAG}-macOS-arm64.zip" \
+            "Tsubame-${RELEASE_TAG}-macOS-x86_64.zip" > SHA256SUMS
+          sha256sum --check SHA256SUMS
+          cd ..
+
+          previous_tag="$(git tag --merged "${RELEASE_TAG}^" --list 'v*' --sort=-version:refname \
+            | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | head -n 1 || true)"
+
+          if [[ -n "${previous_tag}" ]]; then
+            range="${previous_tag}..${RELEASE_TAG}"
+            heading="Commits since ${previous_tag}"
+          else
+            range="${RELEASE_TAG}"
+            heading='Commits in the first release'
+          fi
+
+          {
+            echo "## ${heading}"
+            echo
+            git log --reverse --format='- %h %s' "${range}"
+            echo
+            echo 'These macOS builds are ad-hoc signed, not Developer ID signed or notarized. Gatekeeper may block them.'
+          } > dist/RELEASE_NOTES.md
+
+      - name: Publish GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          gh release create "${RELEASE_TAG}" \
+            "dist/Tsubame-${RELEASE_TAG}-macOS-arm64.zip" \
+            "dist/Tsubame-${RELEASE_TAG}-macOS-x86_64.zip" \
+            dist/SHA256SUMS \
+            --verify-tag \
+            --title "${RELEASE_TAG}" \
+            --notes-file dist/RELEASE_NOTES.md
