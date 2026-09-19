@@ -6,7 +6,6 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/TsubameApp/Core.git",
       "state" : {
-        "branch" : "main",
         "revision" : "8d11a2ad2325d8c841378ee2bc1dfab55d5c170e"
       }
     }

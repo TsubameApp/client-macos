@@ -13,7 +13,7 @@ concurrency:
 
 jobs:
   sync:
-    runs-on: ubuntu-latest
+    runs-on: xcode-27
     steps:
       - name: Validate dispatch source
         env:
@@ -43,14 +43,13 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Update resolved Core revision
-        id: update
+      - name: Select current Core revision
+        id: core
         env:
           REQUESTED_SHA: ${{ github.event.client_payload.sha }}
         run: |
           set -euo pipefail
 
-          package_resolved="Tsubame.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved"
           remote_sha="$(git ls-remote https://github.com/TsubameApp/Core.git refs/heads/main | cut -f1)"
 
           if [[ ! "${remote_sha}" =~ ^[0-9a-f]{40,64}$ ]]; then
@@ -62,21 +61,93 @@ jobs:
             echo "A newer Core main exists; using ${remote_sha} instead of ${REQUESTED_SHA}."
           fi
 
-          if grep -Fq "\"revision\" : \"${remote_sha}\"" "${package_resolved}"; then
+          echo "sha=${remote_sha}" >> "${GITHUB_OUTPUT}"
+
+      - name: Update Xcode package requirement
+        env:
+          CORE_SHA: ${{ steps.core.outputs.sha }}
+        run: |
+          set -euo pipefail
+
+          python3 - <<'PY'
+          import os
+          import pathlib
+          import re
+
+          path = pathlib.Path("Tsubame.xcodeproj/project.pbxproj")
+          text = path.read_text()
+          pattern = re.compile(
+              r'(repositoryURL = "https://github\.com/TsubameApp/Core\.git";'
+              r'\s*requirement = \{\s*)'
+              r'kind = revision;\s*revision = [0-9a-f]{40,64};'
+              r'(\s*\};)'
+          )
+          updated, count = pattern.subn(
+              lambda match: match.group(1)
+              + "kind = revision;\n\t\t\t\trevision = "
+              + os.environ["CORE_SHA"]
+              + ";"
+              + match.group(2),
+              text,
+          )
+          if count != 1:
+              raise SystemExit(f"Expected one pinned Core requirement, found {count}")
+          if updated != text:
+              path.write_text(updated)
+          PY
+
+      - name: Resolve package dependencies
+        run: |
+          set -euo pipefail
+          xcodebuild -resolvePackageDependencies \
+            -project Tsubame.xcodeproj \
+            -scheme Tsubame
+
+      - name: Validate and stage Core pin
+        id: update
+        env:
+          CORE_SHA: ${{ steps.core.outputs.sha }}
+        run: |
+          set -euo pipefail
+
+          package_resolved="Tsubame.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved"
+
+          python3 - <<'PY'
+          import json
+          import os
+          import pathlib
+          import re
+
+          project = pathlib.Path("Tsubame.xcodeproj/project.pbxproj").read_text()
+          matches = re.findall(
+              r'repositoryURL = "https://github\.com/TsubameApp/Core\.git";'
+              r'\s*requirement = \{\s*kind = revision;'
+              r'\s*revision = ([0-9a-f]{40,64});\s*\};',
+              project,
+          )
+          if matches != [os.environ["CORE_SHA"]]:
+              raise SystemExit(f"Core requirement mismatch: {matches}")
+
+          resolved = json.loads(pathlib.Path(
+              "Tsubame.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved"
+          ).read_text())
+          pins = [pin for pin in resolved["pins"] if pin["identity"] == "core"]
+          if len(pins) != 1 or pins[0]["location"] != "https://github.com/TsubameApp/Core.git":
+              raise SystemExit("Expected exactly one remote Core pin")
+          if pins[0]["state"] != {"revision": os.environ["CORE_SHA"]}:
+              raise SystemExit(f"Core resolved state mismatch: {pins[0]['state']}")
+          PY
+
+          git add Tsubame.xcodeproj/project.pbxproj "${package_resolved}"
+          git diff --cached --check
+          if git diff --cached --quiet; then
             echo "changed=false" >> "${GITHUB_OUTPUT}"
-            echo "Package.resolved already points to Core ${remote_sha}."
+            echo "Core is already pinned to ${CORE_SHA}."
             exit 0
           fi
 
-          CORE_SHA="${remote_sha}" perl -0pi -e \
-            's{("identity" : "core".*?"revision" : ")[0-9a-f]{40,64}(")}{$1$ENV{CORE_SHA}$2}s' \
-            "${package_resolved}"
-
-          grep -Fq "\"revision\" : \"${remote_sha}\"" "${package_resolved}"
-          git add "${package_resolved}"
-          git diff --cached --check
           echo "changed=true" >> "${GITHUB_OUTPUT}"
-          echo "core_sha=${remote_sha}" >> "${GITHUB_OUTPUT}"
+          echo "core_sha=${CORE_SHA}" >> "${GITHUB_OUTPUT}"
           git diff --cached
 
       - name: Commit and push resolved Core revision

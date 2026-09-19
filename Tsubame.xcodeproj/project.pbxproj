@@ -598,8 +598,8 @@
 			isa = XCRemoteSwiftPackageReference;
 			repositoryURL = "https://github.com/TsubameApp/Core.git";
 			requirement = {
-				branch = main;
-				kind = branch;
+				kind = revision;
+				revision = 8d11a2ad2325d8c841378ee2bc1dfab55d5c170e;
 			};
 		};
 /* End XCRemoteSwiftPackageReference section */
