@@ -73,7 +73,7 @@ struct AnkiSettingsTests {
 
         #expect(settings.fieldTemplates["Word Meaning (Russian)"] == "{definitions}")
         #expect(settings.fieldTemplates["Word Reading"] == "{furigana}")
-        #expect(settings.mappingVersion == 3)
+        #expect(settings.mappingVersion == 4)
     }
 
     @Test
@@ -100,7 +100,7 @@ struct AnkiSettingsTests {
                 == ["Word", "Word Reading", "Word Meaning (Russian)", "Sentence"]
         )
         #expect(model.fieldTemplates["Word"] == "{expression}")
-        #expect(model.fieldTemplates["Word Reading"] == "{furigana}")
+        #expect(model.fieldTemplates["Word Reading"] == "{furigana}<br>{audio}")
         #expect(model.fieldTemplates["Word Meaning (Russian)"] == "{definitions}")
         #expect(model.fieldTemplates["Sentence"] == "{cloze-sentence}")
 
@@ -128,9 +128,11 @@ struct AnkiSettingsTests {
         model.deckName = "Default"
 
         #expect(model.fieldTemplates["Front"] == "{expression}")
-        #expect(model.fieldTemplates["Back"] == "{reading}<br>{definitions}")
+        #expect(model.fieldTemplates["Back"] == "{reading}<br>{definitions}<br>{audio}")
         #expect(model.mappingIssues.isEmpty)
-        #expect(try model.miningConfiguration().modelName == "Basic")
+        #expect(try model.miningConfiguration(
+            speech: SpeechSettings(enabled: true, voiceIdentifier: nil, rate: 1)
+        ).modelName == "Basic")
     }
 
     @Test
@@ -159,7 +161,7 @@ struct AnkiSettingsTests {
         #expect(migrated.fieldTemplates["Front"] == "<b>{expression}</b>")
         #expect(migrated.fieldTemplates["Back"] == "{reading}<br>{definitions}")
         #expect(migrated.fieldTemplates["Extra"] == "Custom {definitions}")
-        #expect(migrated.mappingVersion == 3)
+        #expect(migrated.mappingVersion == 4)
     }
 }
 

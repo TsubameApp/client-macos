@@ -7,6 +7,40 @@ struct AnkiMiningConfiguration: Sendable, Equatable {
     let tags: [String]
     let modelFieldNames: [String]
     let fieldTemplates: [String: String]
+    let audioEnabled: Bool
+    let audioVoiceIdentifier: String?
+    let audioRate: Double
+
+    init(
+        endpoint: URL,
+        deckName: String,
+        modelName: String,
+        tags: [String],
+        modelFieldNames: [String],
+        fieldTemplates: [String: String],
+        audioEnabled: Bool = false,
+        audioVoiceIdentifier: String? = nil,
+        audioRate: Double = 1
+    ) {
+        self.endpoint = endpoint
+        self.deckName = deckName
+        self.modelName = modelName
+        self.tags = tags
+        self.modelFieldNames = modelFieldNames
+        self.fieldTemplates = fieldTemplates
+        self.audioEnabled = audioEnabled
+        self.audioVoiceIdentifier = audioVoiceIdentifier
+        self.audioRate = audioRate
+    }
+}
+
+struct RenderedAnkiFields: Sendable, Equatable {
+    let values: [String: String]
+    let audioFields: [String]
+
+    subscript(_ field: String) -> String? {
+        values[field]
+    }
 }
 
 enum AnkiFieldRenderingError: LocalizedError, Sendable, Equatable {
@@ -27,19 +61,24 @@ struct AnkiFieldRenderer: Sendable {
     func render(
         candidate: MiningCandidate,
         configuration: AnkiMiningConfiguration
-    ) throws -> [String: String] {
+    ) throws -> RenderedAnkiFields {
         var rendered: [String: String] = [:]
+        var audioFields: [String] = []
         var hasContent = false
         for field in configuration.modelFieldNames {
+            let template = configuration.fieldTemplates[field, default: ""]
+            if template.contains("{audio}") {
+                audioFields.append(field)
+            }
             let value = try render(
-                template: configuration.fieldTemplates[field, default: ""],
+                template: template.replacingOccurrences(of: "{audio}", with: ""),
                 candidate: candidate
             )
             rendered[field] = value
-            hasContent = hasContent || !value.isEmpty
+            hasContent = hasContent || !value.isEmpty || audioFields.contains(field)
         }
         guard hasContent else { throw AnkiFieldRenderingError.noMappedFields }
-        return rendered
+        return RenderedAnkiFields(values: rendered, audioFields: audioFields)
     }
 
     func render(template: String, candidate: MiningCandidate) throws -> String {
@@ -111,7 +150,7 @@ struct AnkiFieldRenderer: Sendable {
 }
 
 extension AnkiSettingsModel {
-    func miningConfiguration() throws -> AnkiMiningConfiguration {
+    func miningConfiguration(speech: SpeechSettings) throws -> AnkiMiningConfiguration {
         guard enabled,
               !deckName.isEmpty,
               !modelName.isEmpty,
@@ -131,7 +170,10 @@ extension AnkiSettingsModel {
                 .split { $0.isWhitespace || $0 == "," }
                 .map(String.init),
             modelFieldNames: modelFieldNames,
-            fieldTemplates: fieldTemplates
+            fieldTemplates: fieldTemplates,
+            audioEnabled: speech.enabled,
+            audioVoiceIdentifier: speech.voiceIdentifier,
+            audioRate: speech.rate
         )
     }
 }

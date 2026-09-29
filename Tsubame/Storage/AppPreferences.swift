@@ -8,12 +8,28 @@ final class AppPreferences {
         static let dictionaryOrderIDs = "dictionaryOrderIDs"
         static let globalShortcutKeyCode = "globalShortcutKeyCode"
         static let globalShortcutModifiers = "globalShortcutModifiers"
+        static let speechEnabled = "speechEnabled"
+        static let speechVoiceIdentifier = "speechVoiceIdentifier"
+        static let speechRate = "speechRate"
     }
 
     private let defaults: UserDefaults
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
+    }
+
+    func migrateLegacyAnkiSpeechSettingsIfNeeded() {
+        guard defaults.object(forKey: Key.speechEnabled) == nil,
+              let data = defaults.data(forKey: "ankiSettings"),
+              let legacy = try? JSONDecoder().decode(LegacyAnkiSpeechSettings.self, from: data),
+              let enabled = legacy.audioEnabled
+        else { return }
+        speechEnabled = enabled
+        speechVoiceIdentifier = legacy.audioVoiceIdentifier
+        if let rate = legacy.audioRate {
+            speechRate = rate
+        }
     }
 
     var onboardingCompleted: Bool {
@@ -24,6 +40,28 @@ final class AppPreferences {
     var developerModeEnabled: Bool {
         get { defaults.bool(forKey: Key.developerModeEnabled) }
         set { defaults.set(newValue, forKey: Key.developerModeEnabled) }
+    }
+
+    var speechEnabled: Bool {
+        get {
+            defaults.object(forKey: Key.speechEnabled) == nil
+                ? true
+                : defaults.bool(forKey: Key.speechEnabled)
+        }
+        set { defaults.set(newValue, forKey: Key.speechEnabled) }
+    }
+
+    var speechVoiceIdentifier: String? {
+        get { defaults.string(forKey: Key.speechVoiceIdentifier) }
+        set { defaults.set(newValue, forKey: Key.speechVoiceIdentifier) }
+    }
+
+    var speechRate: Double {
+        get {
+            guard defaults.object(forKey: Key.speechRate) != nil else { return 1 }
+            return defaults.double(forKey: Key.speechRate)
+        }
+        set { defaults.set(newValue, forKey: Key.speechRate) }
     }
 
     var enabledDictionaryIDs: Set<UUID>? {
@@ -89,6 +127,12 @@ final class AppPreferences {
             )
         }
     }
+}
+
+private struct LegacyAnkiSpeechSettings: Decodable {
+    let audioEnabled: Bool?
+    let audioVoiceIdentifier: String?
+    let audioRate: Double?
 }
 
 struct DictionaryOrder {

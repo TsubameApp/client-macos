@@ -1,5 +1,6 @@
 import Carbon.HIToolbox
 import CoreGraphics
+import Foundation
 import Testing
 @testable import Tsubame
 
@@ -86,6 +87,50 @@ struct PopupInteractionTests {
         #expect(second.sequence < third.sequence)
     }
 
+    @Test
+    func pronunciationPreviewWaitsForAmbiguousReadingSelection() {
+        #expect(PopupPronunciation.shouldShowPreview(
+            variantCount: 1,
+            selectedVariant: nil
+        ))
+        #expect(!PopupPronunciation.shouldShowPreview(
+            variantCount: 2,
+            selectedVariant: nil
+        ))
+        #expect(PopupPronunciation.shouldShowPreview(
+            variantCount: 2,
+            selectedVariant: 42
+        ))
+        #expect(PopupPronunciation.text(expression: "食べる", reading: "たべる") == "たべる")
+        #expect(PopupPronunciation.text(expression: "かな", reading: "") == "かな")
+    }
+
+    @Test @MainActor
+    func pronunciationPreviewUsesTheSelectedGlobalVoiceAndRate() async throws {
+        let suiteName = "PopupInteractionTests.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let synthesizer = RecordingPopupSpeechSynthesizer()
+        let model = SpeechSettingsModel(
+            preferences: AppPreferences(defaults: defaults),
+            synthesizer: synthesizer
+        )
+        model.voiceIdentifier = "voice.jp"
+        model.rate = 0.9
+
+        model.togglePlayback(text: "たべる", key: "selected-reading")
+        for _ in 0..<100 where synthesizer.calls.isEmpty {
+            await Task.yield()
+        }
+
+        #expect(synthesizer.calls == [SpeechCall(
+            text: "たべる",
+            voiceIdentifier: "voice.jp",
+            rate: 0.9
+        )])
+        model.stopPlayback()
+    }
+
     private func command(
         _ keyCode: Int,
         flags: CGEventFlags = []
@@ -93,6 +138,34 @@ struct PopupInteractionTests {
         PopupKeyboardCommandMapper.command(
             keyCode: CGKeyCode(keyCode),
             flags: flags
+        )
+    }
+}
+
+private struct SpeechCall: Equatable {
+    let text: String
+    let voiceIdentifier: String?
+    let rate: Double
+}
+
+@MainActor
+private final class RecordingPopupSpeechSynthesizer: LocalSpeechSynthesizing {
+    private(set) var calls: [SpeechCall] = []
+
+    func synthesize(
+        text: String,
+        voiceIdentifier: String?,
+        rate: Double
+    ) async throws -> SynthesizedAudio {
+        calls.append(SpeechCall(
+            text: text,
+            voiceIdentifier: voiceIdentifier,
+            rate: rate
+        ))
+        return SynthesizedAudio(
+            data: Data([0]),
+            filename: "preview.m4a",
+            mimeType: "audio/mp4"
         )
     }
 }

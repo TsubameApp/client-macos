@@ -15,12 +15,14 @@ struct AnkiNote: Codable, Sendable, Equatable {
     let fields: [String: String]
     let options: Options
     let tags: [String]
+    let audio: [MediaAttachment]?
 
     init(
         deckName: String,
         modelName: String,
         fields: [String: String],
-        tags: [String]
+        tags: [String],
+        audio: [MediaAttachment]? = nil
     ) {
         self.deckName = deckName
         self.modelName = modelName
@@ -30,11 +32,18 @@ struct AnkiNote: Codable, Sendable, Equatable {
             duplicateScope: "collection"
         )
         self.tags = tags
+        self.audio = audio
     }
 
     struct Options: Codable, Sendable, Equatable {
         let allowDuplicate: Bool
         let duplicateScope: String
+    }
+
+    struct MediaAttachment: Codable, Sendable, Equatable {
+        let filename: String
+        let data: String
+        let fields: [String]
     }
 }
 

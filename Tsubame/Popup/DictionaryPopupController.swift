@@ -50,6 +50,7 @@ final class DictionaryPopupController {
     private let keyboardRouter: any PopupKeyboardRouting
     private var presentation: PopupPresentation?
     private var ankiMiningModel: AnkiMiningModel?
+    private var speechSettingsModel: SpeechSettingsModel?
     private var globalDismissMonitor: Any?
     private var localDismissMonitor: Any?
     private var feedbackState = HotKeyFeedbackState()
@@ -68,6 +69,7 @@ final class DictionaryPopupController {
                 presentation: nil,
                 feedback: nil,
                 ankiMiningModel: nil,
+                speechSettingsModel: nil,
                 deckModel: deckModel,
                 liveState: liveState,
                 interactionState: interactionState,
@@ -193,6 +195,11 @@ final class DictionaryPopupController {
         updateRootView()
     }
 
+    func setSpeechSettingsModel(_ model: SpeechSettingsModel) {
+        speechSettingsModel = model
+        updateRootView()
+    }
+
     func hide() {
         feedbackDismissTask?.cancel()
         feedbackDismissTask = nil
@@ -200,6 +207,7 @@ final class DictionaryPopupController {
         removeDismissMonitors()
         keyboardRouter.stop()
         interactionState.hide()
+        speechSettingsModel?.stopPlayback()
         applyPanelCollectionBehavior()
         panel.orderOut(nil)
     }
@@ -325,6 +333,7 @@ final class DictionaryPopupController {
             presentation: presentation,
             feedback: feedbackState.item?.presentation,
             ankiMiningModel: ankiMiningModel,
+            speechSettingsModel: speechSettingsModel,
             deckModel: deckModel,
             liveState: liveState,
             interactionState: interactionState,
@@ -460,6 +469,7 @@ private struct DictionaryPopupView: View {
     let presentation: PopupPresentation?
     let feedback: HotKeyFeedbackPresentation?
     let ankiMiningModel: AnkiMiningModel?
+    let speechSettingsModel: SpeechSettingsModel?
     let deckModel: DictionaryScanDeckModel
     let liveState: PopupLiveState
     let interactionState: PopupInteractionState
@@ -546,6 +556,7 @@ private struct DictionaryPopupView: View {
                             scan: scanPresentation,
                             presentation: presentation,
                             ankiMiningModel: ankiMiningModel,
+                            speechSettingsModel: speechSettingsModel,
                             deckModel: deckModel
                         )
                     }
@@ -621,6 +632,7 @@ private struct PopupScanDeckView: View {
     let scan: DictionaryScanPresentation
     let presentation: PopupPresentation
     let ankiMiningModel: AnkiMiningModel?
+    let speechSettingsModel: SpeechSettingsModel?
     let deckModel: DictionaryScanDeckModel
 
     private var selectedIndex: Int {
@@ -670,6 +682,7 @@ private struct PopupScanDeckView: View {
                         sectionCount: scan.sections.count,
                         presentation: presentation,
                         ankiMiningModel: ankiMiningModel,
+                        speechSettingsModel: speechSettingsModel,
                         previous: { deckModel.move(by: -1, in: scan) },
                         next: { deckModel.move(by: 1, in: scan) },
                         scrollRequest: deckModel.scrollRequest
@@ -752,6 +765,7 @@ private struct PopupActiveScanCard: View {
     let sectionCount: Int
     let presentation: PopupPresentation
     let ankiMiningModel: AnkiMiningModel?
+    let speechSettingsModel: SpeechSettingsModel?
     let previous: () -> Void
     let next: () -> Void
     let scrollRequest: PopupScrollRequest
@@ -812,7 +826,8 @@ private struct PopupActiveScanCard: View {
                                     PopupAlternativeGroupView(
                                         group: alternative,
                                         presentation: presentation,
-                                        ankiMiningModel: ankiMiningModel
+                                        ankiMiningModel: ankiMiningModel,
+                                        speechSettingsModel: speechSettingsModel
                                     )
                                 }
                             }
@@ -835,7 +850,8 @@ private struct PopupActiveScanCard: View {
                     PopupEntriesView(
                         entries: section.group.entries,
                         presentation: presentation,
-                        ankiMiningModel: ankiMiningModel
+                        ankiMiningModel: ankiMiningModel,
+                        speechSettingsModel: speechSettingsModel
                     )
                 }
                 .padding(14)
@@ -954,6 +970,7 @@ private struct PopupAlternativeGroupView: View {
     let group: DictionaryScanGroup
     let presentation: PopupPresentation
     let ankiMiningModel: AnkiMiningModel?
+    let speechSettingsModel: SpeechSettingsModel?
 
     private var matchedText: String {
         group.sourceRange.substring(in: presentation.contextText)
@@ -969,7 +986,8 @@ private struct PopupAlternativeGroupView: View {
             PopupEntriesView(
                 entries: group.entries,
                 presentation: presentation,
-                ankiMiningModel: ankiMiningModel
+                ankiMiningModel: ankiMiningModel,
+                speechSettingsModel: speechSettingsModel
             )
         }
     }
@@ -979,6 +997,7 @@ private struct PopupEntriesView: View {
     let entries: [DictionaryLookupEntry]
     let presentation: PopupPresentation
     let ankiMiningModel: AnkiMiningModel?
+    let speechSettingsModel: SpeechSettingsModel?
     @State private var models: [PopupEntryModel]?
 
     private struct Request: Hashable {
@@ -990,7 +1009,12 @@ private struct PopupEntriesView: View {
         LazyVStack(alignment: .leading, spacing: 12) {
             if let models {
                 ForEach(models) { model in
-                    PopupEntryView(model: model, presentation: presentation, ankiMiningModel: ankiMiningModel)
+                    PopupEntryView(
+                        model: model,
+                        presentation: presentation,
+                        ankiMiningModel: ankiMiningModel,
+                        speechSettingsModel: speechSettingsModel
+                    )
                     if model.id != models.last?.id { Divider().opacity(0.35) }
                 }
             } else {
@@ -1078,6 +1102,7 @@ private struct PopupEntryView: View {
     @Bindable var model: PopupEntryModel
     let presentation: PopupPresentation
     let ankiMiningModel: AnkiMiningModel?
+    let speechSettingsModel: SpeechSettingsModel?
 
     private var article: DictionaryArticle { model.article }
     private var entry: DictionaryLookupEntry {
@@ -1097,6 +1122,15 @@ private struct PopupEntryView: View {
                         .font(.callout)
                         .foregroundStyle(.secondary)
                 }
+                if article.variants.count == 1,
+                   let speechSettingsModel,
+                   speechSettingsModel.enabled {
+                    PronunciationPreviewButton(
+                        model: speechSettingsModel,
+                        text: pronunciationText,
+                        key: pronunciationKey
+                    )
+                }
                 Spacer()
                 Text(entry.dictionaryTitle)
                     .font(.caption2)
@@ -1113,12 +1147,34 @@ private struct PopupEntryView: View {
             }
 
             if article.variants.count > 1 {
-                Picker("Reading for metadata / Anki", selection: $model.selectedVariant) {
-                    Text("Choose reading…").tag(Optional<Int64>.none)
-                    ForEach(article.variants) { variant in
-                        Text(variant.entry.reading).tag(Optional(variant.entry.id))
+                HStack(spacing: 6) {
+                    Picker("Reading for metadata / Anki", selection: $model.selectedVariant) {
+                        Text("Choose reading…").tag(Optional<Int64>.none)
+                        ForEach(article.variants) { variant in
+                            Text(variant.entry.reading).tag(Optional(variant.entry.id))
+                        }
                     }
-                }.pickerStyle(.menu).controlSize(.small)
+                    .pickerStyle(.menu)
+                    .controlSize(.small)
+
+                    if PopupPronunciation.shouldShowPreview(
+                        variantCount: article.variants.count,
+                        selectedVariant: model.selectedVariant
+                    ),
+                       let speechSettingsModel,
+                       speechSettingsModel.enabled {
+                        PronunciationPreviewButton(
+                            model: speechSettingsModel,
+                            text: pronunciationText,
+                            key: pronunciationKey
+                        )
+                    }
+                }
+                .onChange(of: model.selectedVariant) { oldValue, newValue in
+                    if oldValue != newValue {
+                        speechSettingsModel?.stopPlayback()
+                    }
+                }
             }
             if let content {
                 if article.variants.count == 1 || model.selectedVariant != nil {
@@ -1165,6 +1221,80 @@ private struct PopupEntryView: View {
                     DictionaryDefinition(position: $0.position, kind: "text",
                         text: $0.nodes.map(\.plainText).joined(), contentJSON: Data("null".utf8))
                 }))
+    }
+
+    private var pronunciationText: String {
+        PopupPronunciation.text(
+            expression: entry.entry.expression,
+            reading: entry.entry.reading
+        )
+    }
+
+    private var pronunciationKey: String {
+        "popup:\(presentation.requestID):\(entry.dictionaryID.uuidString):\(entry.entry.id):\(entry.sourceRange.start):\(entry.sourceRange.end)"
+    }
+}
+
+enum PopupPronunciation {
+    static func shouldShowPreview(
+        variantCount: Int,
+        selectedVariant: Int64?
+    ) -> Bool {
+        variantCount == 1 || selectedVariant != nil
+    }
+
+    static func text(expression: String, reading: String) -> String {
+        reading.isEmpty ? expression : reading
+    }
+}
+
+private struct PronunciationPreviewButton: View {
+    @Bindable var model: SpeechSettingsModel
+    let text: String
+    let key: String
+
+    private var state: AudioPreviewState {
+        model.playbackState(for: key)
+    }
+
+    var body: some View {
+        Group {
+            switch state {
+            case .generating:
+                ProgressView()
+                    .controlSize(.mini)
+                    .frame(width: 20, height: 20)
+                    .help("Preparing pronunciation…")
+            case .playing:
+                previewButton(systemName: "speaker.wave.2.fill")
+                    .foregroundStyle(Color.accentColor)
+                    .help("Stop pronunciation")
+            case .failed(let message):
+                previewButton(systemName: "exclamationmark.triangle.fill")
+                    .foregroundStyle(.orange)
+                    .help("\(message) Click to retry.")
+            case .idle:
+                previewButton(systemName: "speaker.wave.2")
+                    .foregroundStyle(.secondary)
+                    .help("Play pronunciation")
+            }
+        }
+        .accessibilityLabel(state == .playing
+            ? "Stop pronunciation"
+            : "Play pronunciation for \(text)")
+    }
+
+    private func previewButton(systemName: String) -> some View {
+        Button {
+            model.togglePlayback(text: text, key: key)
+        } label: {
+            Image(systemName: systemName)
+                .font(.caption)
+                .frame(width: 20, height: 20)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.borderless)
+        .disabled(model.japaneseVoices.isEmpty)
     }
 }
 

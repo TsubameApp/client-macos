@@ -39,6 +39,64 @@ struct AnkiMiningServiceTests {
         #expect(result == .duplicate)
         #expect(await client.calls == ["canAddNote"])
     }
+
+    @Test
+    func generatesLocalAudioAfterDuplicateCheckAndAttachesItToMappedFields() async throws {
+        let client = RecordingAnkiService(canAdd: true, noteID: 88)
+        let speech = RecordingSpeechSynthesizer()
+        let service = AnkiMiningService(
+            speechSynthesizer: speech,
+            clientProvider: { _ in client }
+        )
+        let configuration = AnkiMiningConfiguration(
+            endpoint: try AnkiConnectEndpoint.validate(AnkiConnectEndpoint.defaultValue),
+            deckName: "Mining",
+            modelName: "Lapis",
+            tags: ["tsubame"],
+            modelFieldNames: ["Expression", "Audio"],
+            fieldTemplates: [
+                "Expression": "{expression}",
+                "Audio": "{audio}"
+            ],
+            audioEnabled: true,
+            audioVoiceIdentifier: "voice.jp",
+            audioRate: 0.9
+        )
+
+        #expect(try await service.mine(miningCandidate(), configuration: configuration)
+            == .added(noteID: 88))
+        #expect(await client.calls == ["canAddNote", "addNote"])
+        #expect(await speech.calls == ["たべる|voice.jp|0.9"])
+        let note = try #require(await client.lastNote)
+        let attachment = try #require(note.audio?.first)
+        #expect(attachment.filename == "test.m4a")
+        #expect(attachment.data == Data("audio".utf8).base64EncodedString())
+        #expect(attachment.fields == ["Audio"])
+    }
+
+    @Test
+    func doesNotSynthesizeAudioForDuplicate() async throws {
+        let client = RecordingAnkiService(canAdd: false, noteID: 1)
+        let speech = RecordingSpeechSynthesizer()
+        let service = AnkiMiningService(
+            speechSynthesizer: speech,
+            clientProvider: { _ in client }
+        )
+        var configuration = try miningConfiguration()
+        configuration = AnkiMiningConfiguration(
+            endpoint: configuration.endpoint,
+            deckName: configuration.deckName,
+            modelName: configuration.modelName,
+            tags: configuration.tags,
+            modelFieldNames: ["Expression", "Audio"],
+            fieldTemplates: ["Expression": "{expression}", "Audio": "{audio}"],
+            audioEnabled: true
+        )
+
+        #expect(try await service.mine(miningCandidate(), configuration: configuration)
+            == .duplicate)
+        #expect(await speech.calls.isEmpty)
+    }
 }
 
 @MainActor
@@ -66,8 +124,15 @@ struct AnkiMiningModelTests {
             )
         )
         let settings = AnkiSettingsModel(store: store)
+        let speechSettings = SpeechSettingsModel(
+            preferences: AppPreferences(defaults: defaults)
+        )
         let service = StubMiningService(result: .added(noteID: 99))
-        let model = AnkiMiningModel(settings: settings, service: service)
+        let model = AnkiMiningModel(
+            settings: settings,
+            speechSettings: speechSettings,
+            service: service
+        )
         let entry = dictionaryEntry()
         let dictionaryID = UUID()
 
@@ -124,6 +189,23 @@ private actor RecordingAnkiService: AnkiConnectServing {
         calls.append("addNote")
         lastNote = note
         return noteID
+    }
+}
+
+private actor RecordingSpeechSynthesizer: LocalSpeechSynthesizing {
+    private(set) var calls: [String] = []
+
+    func synthesize(
+        text: String,
+        voiceIdentifier: String?,
+        rate: Double
+    ) async throws -> SynthesizedAudio {
+        calls.append("\(text)|\(voiceIdentifier ?? "default")|\(rate)")
+        return SynthesizedAudio(
+            data: Data("audio".utf8),
+            filename: "test.m4a",
+            mimeType: "audio/mp4"
+        )
     }
 }
 

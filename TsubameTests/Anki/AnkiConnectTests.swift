@@ -41,7 +41,12 @@ struct AnkiConnectTests {
             deckName: "Mining",
             modelName: "Lapis",
             fields: ["Expression": "食べる"],
-            tags: ["tsubame"]
+            tags: ["tsubame"],
+            audio: [.init(
+                filename: "tsubame-test.m4a",
+                data: Data("audio".utf8).base64EncodedString(),
+                fields: ["Expression"]
+            )]
         )
         #expect(try await client.canAddNote(note))
         #expect(try await client.addNote(note) == 98765)
@@ -58,9 +63,12 @@ struct AnkiConnectTests {
         let params = try #require(addNoteJSON["params"] as? [String: Any])
         let encodedNote = try #require(params["note"] as? [String: Any])
         let options = try #require(encodedNote["options"] as? [String: Any])
+        let audio = try #require(encodedNote["audio"] as? [[String: Any]])
         #expect(encodedNote["deckName"] as? String == "Mining")
         #expect(options["allowDuplicate"] as? Bool == false)
         #expect(options["duplicateScope"] as? String == "collection")
+        #expect(audio.first?["filename"] as? String == "tsubame-test.m4a")
+        #expect(audio.first?["fields"] as? [String] == ["Expression"])
     }
 
     @Test

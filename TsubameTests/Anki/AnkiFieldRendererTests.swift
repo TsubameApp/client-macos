@@ -136,6 +136,30 @@ struct AnkiFieldRendererTests {
     }
 
     @Test
+    func extractsAudioDestinationsFromConfiguredFields() throws {
+        let rendered = try AnkiFieldRenderer().render(
+            candidate: makeCandidate(),
+            configuration: AnkiMiningConfiguration(
+                endpoint: try AnkiConnectEndpoint.validate(AnkiConnectEndpoint.defaultValue),
+                deckName: "Mining",
+                modelName: "Basic",
+                tags: [],
+                modelFieldNames: ["Front", "Back", "Audio"],
+                fieldTemplates: [
+                    "Front": "{expression}",
+                    "Back": "{reading}<br>{audio}",
+                    "Audio": "{audio}"
+                ],
+                audioEnabled: true
+            )
+        )
+
+        #expect(rendered.values["Back"] == "たべる<br>")
+        #expect(rendered.values["Audio"] == "")
+        #expect(rendered.audioFields == ["Back", "Audio"])
+    }
+
+    @Test
     func doesNotInterpretMarkersInsideDictionaryContent() throws {
         let candidate = makeCandidate(definition: "literal {audio} text")
 

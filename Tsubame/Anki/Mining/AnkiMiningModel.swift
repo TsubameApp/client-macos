@@ -22,14 +22,17 @@ enum AnkiMiningState: Sendable, Equatable {
 @Observable
 final class AnkiMiningModel {
     @ObservationIgnored private let settings: AnkiSettingsModel
+    @ObservationIgnored private let speechSettings: SpeechSettingsModel
     @ObservationIgnored private let service: any AnkiMiningServing
     private var states: [AnkiMiningKey: AnkiMiningState] = [:]
 
     init(
         settings: AnkiSettingsModel,
+        speechSettings: SpeechSettingsModel,
         service: any AnkiMiningServing = AnkiMiningService()
     ) {
         self.settings = settings
+        self.speechSettings = speechSettings
         self.service = service
     }
 
@@ -81,7 +84,9 @@ final class AnkiMiningModel {
 
         let configuration: AnkiMiningConfiguration
         do {
-            configuration = try settings.miningConfiguration()
+            configuration = try settings.miningConfiguration(
+                speech: speechSettings.configuration
+            )
         } catch {
             states[key] = .failed(error.localizedDescription)
             return nil

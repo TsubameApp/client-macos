@@ -48,6 +48,7 @@ final class AppModel {
     @ObservationIgnored private let hotKeyMonitor: any GlobalHotKeyMonitoring
     @ObservationIgnored private let preferences: AppPreferences
     @ObservationIgnored private let libraryService: DictionaryLibraryService
+    @ObservationIgnored let speechSettings: SpeechSettingsModel
     @ObservationIgnored let ankiSettings: AnkiSettingsModel
     @ObservationIgnored private let ankiMining: AnkiMiningModel
     @ObservationIgnored private var dictionary: DictionaryCollection?
@@ -66,6 +67,7 @@ final class AppModel {
         hotKeyMonitor: any GlobalHotKeyMonitoring = GlobalHotKeyMonitor(),
         preferences: AppPreferences = .init(),
         libraryService: DictionaryLibraryService = .init(),
+        speechSettings: SpeechSettingsModel? = nil,
         ankiSettings: AnkiSettingsModel = .init(),
         ankiMiningService: any AnkiMiningServing = AnkiMiningService()
     ) {
@@ -75,9 +77,12 @@ final class AppModel {
         self.hotKeyMonitor = hotKeyMonitor
         self.preferences = preferences
         self.libraryService = libraryService
+        let resolvedSpeechSettings = speechSettings ?? SpeechSettingsModel(preferences: preferences)
+        self.speechSettings = resolvedSpeechSettings
         self.ankiSettings = ankiSettings
         ankiMining = AnkiMiningModel(
             settings: ankiSettings,
+            speechSettings: resolvedSpeechSettings,
             service: ankiMiningService
         )
         developerModeEnabled = preferences.developerModeEnabled
@@ -85,6 +90,7 @@ final class AppModel {
         permissionStatus = permissionClient.status()
         globalShortcut = preferences.globalShortcut
         popupController.setDeveloperModeEnabled(developerModeEnabled)
+        popupController.setSpeechSettingsModel(resolvedSpeechSettings)
         popupController.setAnkiMiningModel(ankiMining)
     }
 

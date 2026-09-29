@@ -59,16 +59,43 @@ struct TsubameTests {
         let secondDictionaryID = UUID()
         let preferences = AppPreferences(defaults: defaults)
 
+        #expect(preferences.speechEnabled)
+        #expect(preferences.speechVoiceIdentifier == nil)
+        #expect(preferences.speechRate == 1)
+
         preferences.onboardingCompleted = true
         preferences.developerModeEnabled = true
         preferences.enabledDictionaryIDs = [firstDictionaryID]
         preferences.dictionaryOrderIDs = [secondDictionaryID, firstDictionaryID]
+        preferences.speechEnabled = false
+        preferences.speechVoiceIdentifier = "voice.jp"
+        preferences.speechRate = 0.9
 
         let reloaded = AppPreferences(defaults: defaults)
         #expect(reloaded.onboardingCompleted)
         #expect(reloaded.developerModeEnabled)
         #expect(reloaded.enabledDictionaryIDs == [firstDictionaryID])
         #expect(reloaded.dictionaryOrderIDs == [secondDictionaryID, firstDictionaryID])
+        #expect(!reloaded.speechEnabled)
+        #expect(reloaded.speechVoiceIdentifier == "voice.jp")
+        #expect(reloaded.speechRate == 0.9)
+    }
+
+    @Test
+    func speechSettingsMigrateFromTheFormerAnkiStorage() throws {
+        let suiteName = "TsubameTests.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        defaults.set(Data(
+            #"{"audioEnabled":false,"audioVoiceIdentifier":"voice.jp","audioRate":0.85}"#.utf8
+        ), forKey: "ankiSettings")
+
+        let preferences = AppPreferences(defaults: defaults)
+        preferences.migrateLegacyAnkiSpeechSettingsIfNeeded()
+
+        #expect(!preferences.speechEnabled)
+        #expect(preferences.speechVoiceIdentifier == "voice.jp")
+        #expect(preferences.speechRate == 0.85)
     }
 
     @Test

@@ -45,7 +45,8 @@ final class AnkiSettingsModel {
         "{sentence}",
         "{cloze-sentence}",
         "{dictionary}",
-        "{source-application}"
+        "{source-application}",
+        "{audio}"
     ]
 
     @ObservationIgnored private let store: AnkiSettingsStore
@@ -104,9 +105,14 @@ final class AnkiSettingsModel {
     }
 
     func applySuggestedMappings() {
+        let hasDedicatedAudioField = modelFieldNames.contains(where: Self.isAudioField)
         for field in modelFieldNames {
-            fieldTemplates[field] = Self.suggestedTemplate(for: field) ?? ""
+            fieldTemplates[field] = Self.suggestedTemplate(
+                for: field,
+                hasDedicatedAudioField: hasDedicatedAudioField
+            ) ?? ""
         }
+        addAudioFallbackIfNeeded(to: modelFieldNames)
         persist()
     }
 
@@ -211,11 +217,16 @@ final class AnkiSettingsModel {
         modelFieldNames = fields
         fieldTemplates = fieldTemplates.filter { fields.contains($0.key) }
         if fieldTemplates.values.allSatisfy(\.isEmpty) {
+            let hasDedicatedAudioField = fields.contains(where: Self.isAudioField)
             for field in fields {
-                if let suggested = Self.suggestedTemplate(for: field) {
+                if let suggested = Self.suggestedTemplate(
+                    for: field,
+                    hasDedicatedAudioField: hasDedicatedAudioField
+                ) {
                     fieldTemplates[field] = suggested
                 }
             }
+            addAudioFallbackIfNeeded(to: fields)
         }
         persist()
         TsubameLogging.anki.notice(
@@ -240,7 +251,10 @@ final class AnkiSettingsModel {
         )
     }
 
-    private static func suggestedTemplate(for field: String) -> String? {
+    private static func suggestedTemplate(
+        for field: String,
+        hasDedicatedAudioField: Bool
+    ) -> String? {
         let normalized = field.lowercased().filter {
             $0.isLetter || $0.isNumber
         }
@@ -252,7 +266,11 @@ final class AnkiSettingsModel {
         case "wordreading", "expressionfurigana", "wordfurigana", "furigana":
             "{furigana}"
         case "back":
-            "{reading}<br>{definitions}"
+            !hasDedicatedAudioField
+                ? "{reading}<br>{definitions}<br>{audio}"
+                : "{reading}<br>{definitions}"
+        case "audio", "sound", "pronunciation", "wordaudio", "expressionaudio":
+            "{audio}"
         case "definition", "maindefinition", "primarydefinition", "glossary",
              "wordmeaning", "wordmeaningrussian":
             "{definitions}"
@@ -263,6 +281,25 @@ final class AnkiSettingsModel {
         default:
             nil
         }
+    }
+
+    private static func isAudioField(_ field: String) -> Bool {
+        let normalized = field.lowercased().filter { $0.isLetter || $0.isNumber }
+        return ["audio", "sound", "pronunciation", "wordaudio", "expressionaudio"]
+            .contains(normalized)
+    }
+
+    private func addAudioFallbackIfNeeded(to fields: [String]) {
+        guard !fieldTemplates.values.contains(where: { $0.contains("{audio}") })
+        else { return }
+        let preferred = fields.first(where: {
+            let normalized = $0.lowercased().filter { $0.isLetter || $0.isNumber }
+            return ["reading", "wordreading", "expressionreading", "furigana"]
+                .contains(normalized)
+        }) ?? fields.last(where: { !fieldTemplates[$0, default: ""].isEmpty })
+        guard let preferred else { return }
+        let separator = fieldTemplates[preferred, default: ""].isEmpty ? "" : "<br>"
+        fieldTemplates[preferred, default: ""] += separator + "{audio}"
     }
 }
 

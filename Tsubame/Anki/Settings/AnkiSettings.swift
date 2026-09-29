@@ -18,7 +18,7 @@ struct AnkiSettings: Codable, Sendable, Equatable {
         tags: ["tsubame"],
         fieldTemplates: [:],
         modelFieldNames: [],
-        mappingVersion: 3
+        mappingVersion: 4
     )
 
     init(
@@ -29,7 +29,7 @@ struct AnkiSettings: Codable, Sendable, Equatable {
         tags: [String],
         fieldTemplates: [String: String],
         modelFieldNames: [String] = [],
-        mappingVersion: Int = 3
+        mappingVersion: Int = 4
     ) {
         self.enabled = enabled
         self.endpoint = endpoint
@@ -94,10 +94,10 @@ final class AnkiSettingsStore {
                 migrated.fieldTemplates[field] = "{reading}<br>{definitions}"
             }
         }
-        guard migrated.mappingVersion < 3 || migrated != settings else {
+        guard migrated.mappingVersion < 4 || migrated != settings else {
             return settings
         }
-        migrated.mappingVersion = 3
+        migrated.mappingVersion = 4
         save(migrated)
         return migrated
     }

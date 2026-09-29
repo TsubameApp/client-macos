@@ -20,6 +20,7 @@ struct ContentView: View {
                 dictionarySection
                 accessibilitySection
                 globalShortcutSection
+                SpeechSettingsView(model: model.speechSettings)
                 AnkiSettingsView(model: model.ankiSettings)
                 advancedSection
 
